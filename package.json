@@ -1,0 +1,54 @@
+{
+  "name": "time-stretch",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Time stretching and pitch shifting: WSOLA, phase vocoder",
+  "exports": {
+    ".": "./index.js",
+    "./wsola.js": "./wsola.js",
+    "./vocoder.js": "./vocoder.js",
+    "./pitch-shift.js": "./pitch-shift.js"
+  },
+  "files": [
+    "index.js",
+    "wsola.js",
+    "vocoder.js",
+    "pitch-shift.js"
+  ],
+  "scripts": {
+    "test": "node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/audiojs/time-stretch.git"
+  },
+  "keywords": [
+    "time-stretch",
+    "time-stretching",
+    "pitch-shift",
+    "pitch-shifting",
+    "wsola",
+    "phase-vocoder",
+    "tempo",
+    "speed",
+    "audio",
+    "dsp",
+    "signal-processing"
+  ],
+  "author": "Dmitry Iv. <dfcreative@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/audiojs/time-stretch/issues"
+  },
+  "homepage": "https://github.com/audiojs/time-stretch#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "fourier-transform": "^2.0.0",
+    "window-function": "^3.0.0"
+  },
+  "devDependencies": {
+    "tst": "^9.4.0"
+  }
+}
