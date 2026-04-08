@@ -84,7 +84,7 @@ Overlap-Add. Simplest possible: window each frame, place at new position, crossf
 ```
 Analysis:  ╭──╮    ╭──╮    ╭──╮
            │  │    │  │    │  │       → window + copy at new rate
-Synthesis: ╭──╮         ╭──╮         ╭──╮
+Synthesis: ╭──╮     ╭──╮     ╭──╮
            │  │  +  │  │  +  │  │    → overlap-add (no alignment)
 ```
 
@@ -114,7 +114,7 @@ Waveform Similarity Overlap-Add (Verhelst & Roelands, 1993). Like OLA but search
 Analysis:  ╭──╮    ╭──╮    ╭──╮
            │  │    │  │    │  │
                    ↕ search ±δ        → find best waveform match
-Synthesis: ╭──╮         ╭──╮         ╭──╮
+Synthesis: ╭──╮     ╭──╮     ╭──╮
            │  │  ⊛  │  │  ⊛  │  │   → overlap-add (aligned)
 ```
 
