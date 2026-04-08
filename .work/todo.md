@@ -18,7 +18,7 @@
 
 ### Phase 3: Algorithm coverage
 - [x] OLA (ola.js) — simplest baseline
-- [ ] PSOLA (psola.js) — pitch-synchronous OLA for speech/monophonic
+- [x] PSOLA (psola.js) — pitch-synchronous OLA for speech/monophonic
 - [x] PaulStretch (paulstretch.js) — extreme time stretching
 - [ ] Research sinusoidal modeling feasibility (McAulay-Quatieri) — defer
 

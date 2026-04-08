@@ -1,26 +1,29 @@
 import { fft, ifft } from 'fourier-transform'
 import { hannWindow, PI2 } from './util.js'
 
-function frame(data, pos, win, half, process, state, ctx) {
+function frame(data, pos, win, half, process, state, ctx, sc) {
   let N = win.length
-  let f = new Float64Array(N)
+  let f = sc.f
   for (let i = 0; i < N; i++) f[i] = (data[pos + i] || 0) * win[i]
 
   let [re, im] = fft(f)
-  let mag = new Float64Array(half + 1)
-  let phase = new Float64Array(half + 1)
+  let mag = sc.mag, phase = sc.phase
   for (let k = 0; k <= half; k++) {
     mag[k] = Math.sqrt(re[k] * re[k] + im[k] * im[k])
     phase[k] = Math.atan2(im[k], re[k])
   }
 
   let r = process(mag, phase, state, ctx)
-  let r2 = new Float64Array(half + 1), i2 = new Float64Array(half + 1)
+  let r2 = sc.r2, i2 = sc.i2
   for (let k = 0; k <= half; k++) {
     r2[k] = r.mag[k] * Math.cos(r.phase[k])
     i2[k] = r.mag[k] * Math.sin(r.phase[k])
   }
   return ifft(r2, i2)
+}
+
+function scratch(N, half) {
+  return { f: new Float64Array(N), mag: new Float64Array(half + 1), phase: new Float64Array(half + 1), r2: new Float64Array(half + 1), i2: new Float64Array(half + 1) }
 }
 
 export function stftBatch(data, process, opts) {
@@ -37,10 +40,11 @@ export function stftBatch(data, process, opts) {
   let out = new Float32Array(outLen)
   let norm = new Float32Array(outLen)
   let state = {}
+  let sc = scratch(N, half)
   let aPos = 0, sPos = 0
 
   while (sPos + N <= outLen && Math.round(aPos) + N <= data.length) {
-    let sf = frame(data, Math.round(aPos), win, half, process, state, ctx)
+    let sf = frame(data, Math.round(aPos), win, half, process, state, ctx, sc)
     for (let i = 0; i < N && sPos + i < outLen; i++) {
       out[sPos + i] += sf[i] * win[i]
       norm[sPos + i] += win[i] * win[i]
@@ -63,15 +67,28 @@ export function stftStream(process, opts) {
   let anaHop = opts?.anaHop ?? hop / factor
   let ctx = { anaHop, synHop, half, N, freqPerBin: PI2 / N }
 
-  let inBuf = new Float32Array(0)
+  let inBuf = new Float32Array(N * 4)
+  let inLen = 0
   let outBuf = new Float32Array(N * 8)
   let normBuf = new Float32Array(N * 8)
   let aPos = 0, sPos = 0, oRead = 0
   let state = {}
+  let sc = scratch(N, half)
+
+  function appendIn(chunk) {
+    let need = inLen + chunk.length
+    if (need > inBuf.length) {
+      let nb = new Float32Array(Math.max(need * 2, inBuf.length * 2))
+      nb.set(inBuf.subarray(0, inLen))
+      inBuf = nb
+    }
+    inBuf.set(chunk, inLen)
+    inLen += chunk.length
+  }
 
   function run() {
-    while (Math.round(aPos) + N <= inBuf.length) {
-      let sf = frame(inBuf, Math.round(aPos), win, half, process, state, ctx)
+    while (Math.round(aPos) + N <= inLen) {
+      let sf = frame(inBuf, Math.round(aPos), win, half, process, state, ctx, sc)
       let need = sPos + N
       if (need > outBuf.length) {
         let len = Math.max(need * 2, outBuf.length * 2)
@@ -89,7 +106,8 @@ export function stftStream(process, opts) {
     let used = Math.floor(aPos)
     if (used > N * 2) {
       let trim = used - N
-      inBuf = inBuf.slice(trim)
+      inBuf.copyWithin(0, trim, inLen)
+      inLen -= trim
       aPos -= trim
     }
   }
@@ -118,10 +136,7 @@ export function stftStream(process, opts) {
 
   return {
     write(chunk) {
-      let nb = new Float32Array(inBuf.length + chunk.length)
-      nb.set(inBuf)
-      nb.set(chunk, inBuf.length)
-      inBuf = nb
+      appendIn(chunk)
       run()
       return take(Math.max(0, sPos - N + synHop))
     },

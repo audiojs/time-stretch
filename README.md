@@ -5,7 +5,7 @@ Time stretching and pitch shifting.
 <table><tr><td valign="top">
 
 **[Time domain](#time-domain)**<br>
-<sub>[ola](#ola) · [wsola](#wsola)</sub>
+<sub>[ola](#ola) · [wsola](#wsola) · [psola](#psola)</sub>
 
 **[Frequency domain](#frequency-domain)**<br>
 <sub>[vocoder](#vocoder) · [phaseLock](#phaselock) · [transient](#transient) · [paulstretch](#paulstretch)</sub>
@@ -54,6 +54,7 @@ stream.flush()                                          // → remaining samples
 |---|---|---|---|---|
 | [ola](#ola) | time | ★ | lowest | previews, prototyping |
 | [wsola](#wsola) | time | ★★★ | low | speech, real-time |
+| [psola](#psola) | time | ★★★★ | medium | **speech/monophonic** (pitch-synchronous) |
 | [vocoder](#vocoder) | freq | ★★ | medium | simple tonal material |
 | [phaseLock](#phaselock) | freq | ★★★★ | medium | **music** (general purpose) |
 | [transient](#transient) | freq | ★★★★★ | medium | **music with percussion** |
@@ -283,6 +284,43 @@ paulstretch(data, { factor: 100, frameSize: 8192 })
 **Not for**: small ratios (<2×) — sounds washed out. Not for preserving rhythm or transients.
 
 
+### `psola`
+
+Pitch-Synchronous Overlap-Add (Moulines & Charpentier, 1990). Detects pitch via autocorrelation, windows grains at pitch-synchronous positions. Each grain is exactly 2 periods wide, so speech waveforms are segmented at their natural period boundaries.
+
+```
+              pitch detection         grain extraction
+Input ──→ autocorrelation ──→ pitch marks ──→ grains
+                                  ↓
+                   mark[i] spaced by T0[i]
+                   grain = Hann(2·T0) centered on mark
+                                  ↓
+                     synPos += T0 × factor
+                                  ↓
+                     OLA at synthesis positions
+```
+
+Because grains align with the pitch period, there are no phase discontinuities at overlap boundaries — each grain contains exactly one full pitch cycle. This produces cleaner results than generic OLA/WSOLA for pitched monophonic signals (speech, solo instruments).
+
+```js
+import { psola } from 'time-stretch'
+
+psola(data, { factor: 1.5 })
+psola(data, { factor: 0.75, sampleRate: 48000 })
+psola(data, { factor: 2, minFreq: 100, maxFreq: 400 })  // male voice range
+```
+
+| Param | Default | |
+|---|---|---|
+| `factor` | `1` | Time stretch ratio |
+| `sampleRate` | `44100` | For pitch detection frequency range |
+| `minFreq` | `80` | Lowest expected pitch (Hz) |
+| `maxFreq` | `500` | Highest expected pitch (Hz) |
+
+**Use when**: speech, solo vocals, monophonic instruments, factors 0.5×–2×.<br>
+**Not for**: polyphonic material (can't track a single pitch), extreme ratios (>2× causes gaps).
+
+
 ## Pitch shift
 
 ### `pitchShift`
@@ -389,6 +427,7 @@ vocoder.stream({ factor })
 phaseLock.stream({ factor })
 transient.stream({ factor, transientThreshold })
 paulstretch.stream({ factor })
+psola.stream({ factor, sampleRate, minFreq, maxFreq })
 formantShift.stream({ semitones, ratio, envelopeWidth })
 ```
 
@@ -407,6 +446,7 @@ formantShift.stream({ semitones, ratio, envelopeWidth })
 * Laroche, J. & Dolson, M. (1999). "Improved phase vocoder time-scale modification of audio." _IEEE Trans. Speech Audio Processing_.
 * Röbel, A. (2003). "A new approach to transient processing in the phase vocoder." _DAFx_.
 * Nasca, P. (2006). "PaulStretch — extreme time stretching." _paulnasca.com_.
+* Moulines, E. & Charpentier, F. (1990). "Pitch-synchronous waveform processing techniques for text-to-speech synthesis using diphones." _Speech Communication_, 9(5-6).
 * Driedger, J. & Müller, M. (2016). "A review of time-scale modification of music signals." _Applied Sciences_, 6(2).
 
 

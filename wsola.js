@@ -63,19 +63,31 @@ wsola.stream = function (opts) {
   let synHop = hopSize
   let anaHop = hopSize / factor
 
-  let inBuf = new Float32Array(0)
+  let inBuf = new Float32Array(frameSize * 4)
+  let inLen = 0
   let outBuf = new Float32Array(frameSize * 8)
   let normBuf = new Float32Array(frameSize * 8)
   let aPos = 0, sPos = 0, oRead = 0
 
+  function appendIn(chunk) {
+    let need = inLen + chunk.length
+    if (need > inBuf.length) {
+      let nb = new Float32Array(Math.max(need * 2, inBuf.length * 2))
+      nb.set(inBuf.subarray(0, inLen))
+      inBuf = nb
+    }
+    inBuf.set(chunk, inLen)
+    inLen += chunk.length
+  }
+
   function run() {
-    while (Math.round(aPos) + frameSize <= inBuf.length) {
+    while (Math.round(aPos) + frameSize <= inLen) {
       let nomPos = Math.round(aPos)
       let readPos = nomPos
 
       if (sPos > 0) {
         let searchS = Math.max(0, nomPos - delta)
-        let searchE = Math.min(inBuf.length - frameSize, nomPos + delta)
+        let searchE = Math.min(inLen - frameSize, nomPos + delta)
         if (searchE < searchS) break
         let overlap = Math.min(frameSize, outBuf.length - sPos)
         let bestCorr = -Infinity, bestS = searchS
@@ -87,7 +99,7 @@ wsola.stream = function (opts) {
         readPos = bestS
       }
 
-      if (readPos + frameSize > inBuf.length) break
+      if (readPos + frameSize > inLen) break
 
       let need = sPos + frameSize
       if (need > outBuf.length) {
@@ -109,7 +121,8 @@ wsola.stream = function (opts) {
     let used = Math.floor(aPos)
     if (used > frameSize * 2 + delta) {
       let trim = used - frameSize - delta
-      inBuf = inBuf.slice(trim)
+      inBuf.copyWithin(0, trim, inLen)
+      inLen -= trim
       aPos -= trim
     }
   }
@@ -137,10 +150,7 @@ wsola.stream = function (opts) {
 
   return {
     write(chunk) {
-      let nb = new Float32Array(inBuf.length + chunk.length)
-      nb.set(inBuf)
-      nb.set(chunk, inBuf.length)
-      inBuf = nb
+      appendIn(chunk)
       run()
       return take(Math.max(0, sPos - frameSize + synHop))
     },

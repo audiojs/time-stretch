@@ -5,7 +5,7 @@ import { resample } from './util.js'
 
 /**
  * Pitch shifting via time-stretch + resample.
- * With formant: true, uses cepstral envelope to preserve formants.
+ * With formant: true, uses spectral envelope to preserve formants.
  *
  * @param {Float32Array} data - mono audio samples
  * @param {{semitones?: number, ratio?: number, formant?: boolean, method?: Function, frameSize?: number, hopSize?: number}} opts

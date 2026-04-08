@@ -31,6 +31,19 @@ export function findPeaks(mag, half) {
   return peaks
 }
 
+export function lockPhase(phase, propPhase, mag, half) {
+  let peaks = findPeaks(mag, half)
+  for (let k = 0; k <= half; k++) {
+    if (peaks[k]) continue
+    let lo = k, hi = k
+    while (lo > 0 && !peaks[lo]) lo--
+    while (hi <= half && !peaks[hi]) hi++
+    let pk = (k - lo <= hi - k || hi > half) ? lo : hi
+    if (!peaks[pk]) continue
+    propPhase[k] = phase[k] + (propPhase[pk] - phase[pk])
+  }
+}
+
 export function resample(data, outLen) {
   let out = new Float32Array(outLen)
   let ratio = (data.length - 1) / (outLen - 1 || 1)

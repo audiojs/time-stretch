@@ -1,5 +1,5 @@
 import { stftBatch, stftStream } from './stft.js'
-import { wrapPhase, findPeaks } from './util.js'
+import { wrapPhase, lockPhase } from './util.js'
 
 function detect(threshold) {
   return function (mag, phase, state, ctx) {
@@ -31,16 +31,7 @@ function detect(threshold) {
         let dp = wrapPhase(phase[k] - state.prev[k] - k * freqPerBin * anaHop)
         p[k] = state.synPrev[k] + (k * freqPerBin + dp / anaHop) * synHop
       }
-      let peaks = findPeaks(mag, half)
-      for (let k = 0; k <= half; k++) {
-        if (peaks[k]) continue
-        let lo = k, hi = k
-        while (lo > 0 && !peaks[lo]) lo--
-        while (hi <= half && !peaks[hi]) hi++
-        let pk = (k - lo <= hi - k || hi > half) ? lo : hi
-        if (!peaks[pk]) continue
-        p[k] = phase[k] + (p[pk] - phase[pk])
-      }
+      lockPhase(phase, p, mag, half)
     }
     state.prev.set(phase)
     state.synPrev.set(p)

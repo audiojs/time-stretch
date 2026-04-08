@@ -2,7 +2,7 @@
   "name": "time-stretch",
   "version": "1.0.0",
   "type": "module",
-  "description": "Time stretching and pitch shifting: OLA, WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch",
+  "description": "Time stretching and pitch shifting: OLA, WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch, PSOLA",
   "sideEffects": false,
   "exports": {
     ".": "./index.js",
@@ -12,6 +12,7 @@
     "./phase-lock": "./phase-lock.js",
     "./transient": "./transient.js",
     "./paulstretch": "./paulstretch.js",
+    "./psola": "./psola.js",
     "./pitch-shift": "./pitch-shift.js",
     "./formant-shift": "./formant-shift.js",
     "./util": "./util.js"
@@ -24,8 +25,10 @@
     "phase-lock.js",
     "transient.js",
     "paulstretch.js",
+    "psola.js",
     "pitch-shift.js",
     "formant-shift.js",
+    "stft.js",
     "util.js"
   ],
   "scripts": {
@@ -46,6 +49,7 @@
     "phase-locking",
     "transient",
     "paulstretch",
+    "psola",
     "tempo",
     "speed",
     "audio",

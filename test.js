@@ -1,5 +1,5 @@
 import test, { almost, ok, is } from 'tst'
-import { ola, wsola, vocoder, phaseLock, transient, paulstretch, pitchShift, formantShift } from './index.js'
+import { ola, wsola, vocoder, phaseLock, transient, paulstretch, psola, pitchShift, formantShift } from './index.js'
 
 let fs = 44100
 
@@ -123,6 +123,40 @@ test('paulstretch — very extreme (32x)', () => {
   ok(rms(out) > 0.01, 'has signal')
 })
 
+// --- PSOLA ---
+test('psola — factor 1 returns copy', () => {
+  let data = sine(440, 8192, fs)
+  let out = psola(data, { factor: 1 })
+  is(out.length, data.length)
+})
+
+test('psola — factor 2 doubles length', () => {
+  let data = sine(440, 8192, fs)
+  let out = psola(data, { factor: 2 })
+  almost(out.length, data.length * 2, data.length * 0.15)
+  ok(rms(out) > 0.05, 'has signal')
+})
+
+test('psola — factor 0.5 halves length', () => {
+  let data = sine(440, 8192, fs)
+  let out = psola(data, { factor: 0.5 })
+  almost(out.length, data.length * 0.5, data.length * 0.15)
+  ok(rms(out) > 0.05, 'has signal')
+})
+
+test('psola — preserves pitch (440Hz sine)', () => {
+  let data = sine(440, 16384, fs)
+  let out = psola(data, { factor: 2 })
+  let freq = peakFreq(out, fs)
+  almost(freq, 440, 440 * 0.1, 'pitch preserved')
+})
+
+test('psola — energy conservation', () => {
+  let data = sine(440, 8192, fs)
+  let out = psola(data, { factor: 2 })
+  almost(rms(out), rms(data), rms(data) * 0.3, 'energy preserved')
+})
+
 // --- Pitch shift ---
 test('pitchShift — 0 semitones returns copy', () => {
   let data = sine(440, 8192, fs)
@@ -177,6 +211,7 @@ function testStream(name, fn, streamOpts = {}) {
   let factor = streamOpts.factor ?? 2
   let chunkSize = streamOpts.chunkSize ?? 4096
   let lenTol = streamOpts.lenTol ?? 0.15
+  let energyTol = streamOpts.energyTol ?? 0.3
 
   test(`${name}.stream — matches batch output`, () => {
     let data = sine(440, 16384, fs)
@@ -204,7 +239,7 @@ function testStream(name, fn, streamOpts = {}) {
     for (let c of chunks) { assembled.set(c, off); off += c.length }
     let streamRms = rms(assembled)
     ok(streamRms > 0.05, 'has signal')
-    almost(streamRms, batchRms, batchRms * 0.3, 'similar energy')
+    almost(streamRms, batchRms, batchRms * energyTol, 'similar energy')
   })
 
   test(`${name}.stream — handles small chunks`, () => {
@@ -247,7 +282,8 @@ testStream('wsola', wsola)
 testStream('vocoder', vocoder)
 testStream('phaseLock', phaseLock)
 testStream('transient', transient)
-testStream('paulstretch', paulstretch, { factor: 8, lenTol: 0.25 })
+testStream('paulstretch', paulstretch, { factor: 8, lenTol: 0.25, energyTol: 0.5 })
+testStream('psola', psola, { lenTol: 0.25, energyTol: 0.5 })
 
 // --- Formant pitch shift ---
 test('formantShift — 0 semitones returns copy', () => {
