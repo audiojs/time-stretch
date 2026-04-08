@@ -13,6 +13,7 @@
     "./transient": "./transient.js",
     "./paulstretch": "./paulstretch.js",
     "./pitch-shift": "./pitch-shift.js",
+    "./formant-shift": "./formant-shift.js",
     "./util": "./util.js"
   },
   "files": [
@@ -24,6 +25,7 @@
     "transient.js",
     "paulstretch.js",
     "pitch-shift.js",
+    "formant-shift.js",
     "util.js"
   ],
   "scripts": {

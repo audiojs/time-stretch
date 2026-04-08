@@ -1,5 +1,5 @@
 import test, { almost, ok, is } from 'tst'
-import { ola, wsola, vocoder, phaseLock, transient, paulstretch, pitchShift } from './index.js'
+import { ola, wsola, vocoder, phaseLock, transient, paulstretch, pitchShift, formantShift } from './index.js'
 
 let fs = 44100
 
@@ -248,3 +248,114 @@ testStream('vocoder', vocoder)
 testStream('phaseLock', phaseLock)
 testStream('transient', transient)
 testStream('paulstretch', paulstretch, { factor: 8, lenTol: 0.25 })
+
+// --- Formant pitch shift ---
+test('formantShift — 0 semitones returns copy', () => {
+  let data = sine(440, 8192, fs)
+  let out = formantShift(data, { semitones: 0 })
+  is(out.length, data.length)
+  almost(rms(out), rms(data), 0.01)
+})
+
+test('formantShift — preserves length', () => {
+  let data = sine(440, 8192, fs)
+  let out = formantShift(data, { semitones: 5 })
+  is(out.length, data.length)
+  ok(rms(out) > 0.1, 'has signal')
+})
+
+test('formantShift — +12 semitones doubles frequency', () => {
+  let data = sine(220, 16384, fs)
+  let out = formantShift(data, { semitones: 12 })
+  let freq = peakFreq(out, fs)
+  almost(freq, 440, 440 * 0.15, 'octave up')
+})
+
+test('formantShift — -12 semitones halves frequency', () => {
+  let data = sine(440, 16384, fs)
+  let out = formantShift(data, { semitones: -12 })
+  let freq = peakFreq(out, fs)
+  almost(freq, 220, 220 * 0.15, 'octave down')
+})
+
+test('formantShift — negative semitones', () => {
+  let data = sine(440, 8192, fs)
+  let out = formantShift(data, { semitones: -3 })
+  is(out.length, data.length)
+  ok(rms(out) > 0.1, 'has signal')
+})
+
+test('formantShift — ratio parameter', () => {
+  let data = sine(440, 8192, fs)
+  let out = formantShift(data, { ratio: 1.5 })
+  is(out.length, data.length)
+  ok(rms(out) > 0.1, 'has signal')
+})
+
+test('pitchShift — formant: true delegates', () => {
+  let data = sine(440, 8192, fs)
+  let out = pitchShift(data, { semitones: 5, formant: true })
+  is(out.length, data.length)
+  ok(rms(out) > 0.1, 'has signal')
+})
+
+// --- Formant shift streaming ---
+test('formantShift.stream — matches batch output', () => {
+  let data = sine(440, 16384, fs)
+  let batch = formantShift(data, { semitones: 5 })
+  let batchRms = rms(batch)
+
+  let stream = formantShift.stream({ semitones: 5 })
+  let chunks = []
+  for (let i = 0; i < data.length; i += 4096) {
+    let chunk = data.subarray(i, Math.min(i + 4096, data.length))
+    let out = stream.write(chunk)
+    if (out.length) chunks.push(out)
+  }
+  let tail = stream.flush()
+  if (tail.length) chunks.push(tail)
+
+  let total = chunks.reduce((s, c) => s + c.length, 0)
+  ok(total > 0, 'produces output')
+  almost(total, batch.length, batch.length * 0.15, 'similar length')
+
+  let assembled = new Float32Array(total)
+  let off = 0
+  for (let c of chunks) { assembled.set(c, off); off += c.length }
+  let streamRms = rms(assembled)
+  ok(streamRms > 0.05, 'has signal')
+  almost(streamRms, batchRms, batchRms * 0.5, 'similar energy')
+})
+
+test('formantShift.stream — handles small chunks', () => {
+  let data = sine(440, 8192, fs)
+  let stream = formantShift.stream({ semitones: 5 })
+  let chunks = []
+  for (let i = 0; i < data.length; i += 512) {
+    let out = stream.write(data.subarray(i, Math.min(i + 512, data.length)))
+    if (out.length) chunks.push(out)
+  }
+  let tail = stream.flush()
+  if (tail.length) chunks.push(tail)
+  let total = chunks.reduce((s, c) => s + c.length, 0)
+  ok(total > 0, 'produces output from small chunks')
+})
+
+test('formantShift.stream — silence stays silent', () => {
+  let data = new Float32Array(8192)
+  let stream = formantShift.stream({ semitones: 5 })
+  let chunks = []
+  for (let i = 0; i < data.length; i += 4096) {
+    let out = stream.write(data.subarray(i, i + 4096))
+    if (out.length) chunks.push(out)
+  }
+  let tail = stream.flush()
+  if (tail.length) chunks.push(tail)
+  let total = chunks.reduce((s, c) => s + c.length, 0)
+  if (total > 0) {
+    let assembled = new Float32Array(total)
+    let off = 0
+    for (let c of chunks) { assembled.set(c, off); off += c.length }
+    almost(rms(assembled), 0, 0.001, 'silence preserved')
+  }
+})

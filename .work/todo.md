@@ -13,7 +13,7 @@
 - [x] Identity phase locking (Laroche-Dolson 1999) — phase-lock.js
 - [x] Transient detection + phase reset (Röbel 2003) — transient.js
 - [x] Phase-lock + transient combined in transient.js
-- [ ] Formant-preserving pitch shift (spectral envelope estimation)
+- [x] Formant-preserving pitch shift (spectral envelope estimation)
 - [x] Multi-backend pitch-shift.js (phaseLock default, wsola option)
 
 ### Phase 3: Algorithm coverage
@@ -25,7 +25,7 @@
 ### Phase 4: Package quality
 - [x] Granular exports in package.json
 - [ ] TypeScript declarations (index.d.ts)
-- [ ] README.md (API reference, algorithm comparison, usage examples)
+- [x] README.md (API reference, algorithm comparison, usage examples)
 - [ ] Benchmark: CPU cost per algorithm
 - [ ] Test multi-channel handling (stereo)
 - [ ] Test extreme ratios (0.1x, 10x, 100x)
