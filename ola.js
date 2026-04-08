@@ -1,12 +1,11 @@
 import { hannWindow, normalize } from './util.js'
 
-export default function wsola(data, opts) {
+export default function ola(data, opts) {
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
   let frameSize = opts?.frameSize || 1024
   let hopSize = opts?.hopSize || (frameSize >> 2)
-  let delta = opts?.delta || (frameSize >> 2)
 
   let inLen = data.length
   let outLen = Math.round(inLen * factor)
@@ -19,30 +18,11 @@ export default function wsola(data, opts) {
 
   let anaPos = 0, synPos = 0
 
-  while (synPos + frameSize <= outLen) {
-    let nomPos = Math.round(anaPos)
-    let readPos = nomPos
-
-    if (synPos > 0) {
-      let searchStart = Math.max(0, nomPos - delta)
-      let searchEnd = Math.min(inLen - frameSize, nomPos + delta)
-      if (searchEnd < searchStart) break
-
-      let overlapLen = Math.min(frameSize, outLen - synPos)
-      let bestCorr = -Infinity, bestS = searchStart
-
-      for (let s = searchStart; s <= searchEnd; s++) {
-        let corr = 0
-        for (let i = 0; i < overlapLen; i++) corr += data[s + i] * out[synPos + i]
-        if (corr > bestCorr) { bestCorr = corr; bestS = s }
-      }
-      readPos = bestS
-    }
-
-    if (readPos + frameSize > inLen) break
+  while (synPos + frameSize <= outLen && Math.round(anaPos) + frameSize <= inLen) {
+    let readPos = Math.round(anaPos)
 
     for (let i = 0; i < frameSize && synPos + i < outLen; i++) {
-      out[synPos + i] += data[readPos + i] * win[i]
+      out[synPos + i] += (data[readPos + i] || 0) * win[i]
       norm[synPos + i] += win[i]
     }
 
@@ -54,11 +34,10 @@ export default function wsola(data, opts) {
   return out
 }
 
-wsola.stream = function (opts) {
+ola.stream = function (opts) {
   let factor = opts?.factor ?? 1
   let frameSize = opts?.frameSize || 1024
   let hopSize = opts?.hopSize || (frameSize >> 2)
-  let delta = opts?.delta || (frameSize >> 2)
   let win = hannWindow(frameSize)
   let synHop = hopSize
   let anaHop = hopSize / factor
@@ -70,25 +49,7 @@ wsola.stream = function (opts) {
 
   function run() {
     while (Math.round(aPos) + frameSize <= inBuf.length) {
-      let nomPos = Math.round(aPos)
-      let readPos = nomPos
-
-      if (sPos > 0) {
-        let searchS = Math.max(0, nomPos - delta)
-        let searchE = Math.min(inBuf.length - frameSize, nomPos + delta)
-        if (searchE < searchS) break
-        let overlap = Math.min(frameSize, outBuf.length - sPos)
-        let bestCorr = -Infinity, bestS = searchS
-        for (let s = searchS; s <= searchE; s++) {
-          let corr = 0
-          for (let i = 0; i < overlap; i++) corr += inBuf[s + i] * outBuf[sPos + i]
-          if (corr > bestCorr) { bestCorr = corr; bestS = s }
-        }
-        readPos = bestS
-      }
-
-      if (readPos + frameSize > inBuf.length) break
-
+      let rp = Math.round(aPos)
       let need = sPos + frameSize
       if (need > outBuf.length) {
         let len = need * 2
@@ -96,19 +57,16 @@ wsola.stream = function (opts) {
         ob.set(outBuf); nb.set(normBuf)
         outBuf = ob; normBuf = nb
       }
-
       for (let i = 0; i < frameSize; i++) {
-        outBuf[sPos + i] += inBuf[readPos + i] * win[i]
+        outBuf[sPos + i] += (inBuf[rp + i] || 0) * win[i]
         normBuf[sPos + i] += win[i]
       }
-
       aPos += anaHop
       sPos += synHop
     }
-
     let used = Math.floor(aPos)
-    if (used > frameSize * 2 + delta) {
-      let trim = used - frameSize - delta
+    if (used > frameSize * 2) {
+      let trim = used - frameSize
       inBuf = inBuf.slice(trim)
       aPos -= trim
     }

@@ -1,35 +1,26 @@
+import phaseLock from './phase-lock.js'
 import wsola from './wsola.js'
+import { resample } from './util.js'
 
 /**
  * Pitch shifting via time-stretch + resample.
- * Stretch by 2^(semitones/12), then resample back to original length.
+ * Stretches by pitch ratio, then resamples back to original length.
  *
  * @param {Float32Array} data - mono audio samples
- * @param {{semitones: number, fs?: number, frameSize?: number, hopSize?: number}} params
+ * @param {{semitones?: number, ratio?: number, method?: Function, frameSize?: number, hopSize?: number}} opts
  * @returns {Float32Array} pitch-shifted audio (same length as input)
  */
-export default function pitchShift(data, params) {
-  let semitones = params?.semitones ?? 0
-  if (semitones === 0) return new Float32Array(data)
+export default function pitchShift(data, opts) {
+  let semitones = opts?.semitones ?? 0
+  let ratio = opts?.ratio ?? (semitones ? Math.pow(2, semitones / 12) : 1)
+  if (ratio === 1) return new Float32Array(data)
 
-  let factor = Math.pow(2, semitones / 12)
+  let method = opts?.method || phaseLock
 
-  // time-stretch: make it longer/shorter
-  let stretched = wsola(data, { ...params, factor })
+  // time-stretch by pitch ratio, then resample to original length
+  // raising pitch (ratio>1) → stretch longer → resample shorter = pitch up
+  let stretched = method(data, { ...opts, factor: ratio })
 
-  // resample back to original length (linear interpolation)
-  let outLen = data.length
-  let out = new Float32Array(outLen)
-  let ratio = stretched.length / outLen
-
-  for (let i = 0; i < outLen; i++) {
-    let pos = i * ratio
-    let idx = Math.floor(pos)
-    let frac = pos - idx
-    let a = stretched[idx] || 0
-    let b = stretched[idx + 1] || 0
-    out[i] = a + (b - a) * frac
-  }
-
-  return out
+  // resample back to original length
+  return resample(stretched, data.length)
 }
