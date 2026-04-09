@@ -1,10 +1,15 @@
 import { hannWindow, normalize } from './util.js'
 
 export default function ola(data, opts) {
+  if (!(data instanceof Float32Array)) {
+    let s = olaStream(data)
+    return (chunk) => chunk ? s.write(chunk) : s.flush()
+  }
+
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
-  let frameSize = opts?.frameSize || 1024
+  let frameSize = opts?.frameSize || 2048
   let hopSize = opts?.hopSize || (frameSize >> 2)
 
   let inLen = data.length
@@ -12,17 +17,18 @@ export default function ola(data, opts) {
   let out = new Float32Array(outLen)
   let norm = new Float32Array(outLen)
 
-  let synHop = hopSize
-  let anaHop = hopSize / factor
+  // Hybrid hop strategy:
+  // Stretching (factor>1): fixed analysis hop, variable synthesis hop → fewer output overlaps → better pitch
+  // Compression (factor<1): fixed synthesis hop, variable analysis hop → limits output overlap → avoids resampling
+  let anaHop = factor >= 1 ? hopSize : Math.round(hopSize / factor)
+  let synHop = factor >= 1 ? Math.round(hopSize * factor) : hopSize
   let win = hannWindow(frameSize)
 
   let anaPos = 0, synPos = 0
 
-  while (synPos + frameSize <= outLen && Math.round(anaPos) + frameSize <= inLen) {
-    let readPos = Math.round(anaPos)
-
+  while (anaPos + frameSize <= inLen && synPos + frameSize <= outLen) {
     for (let i = 0; i < frameSize && synPos + i < outLen; i++) {
-      out[synPos + i] += (data[readPos + i] || 0) * win[i]
+      out[synPos + i] += data[anaPos + i] * win[i]
       norm[synPos + i] += win[i]
     }
 
@@ -34,13 +40,13 @@ export default function ola(data, opts) {
   return out
 }
 
-ola.stream = function (opts) {
+function olaStream(opts) {
   let factor = opts?.factor ?? 1
-  let frameSize = opts?.frameSize || 1024
+  let frameSize = opts?.frameSize || 2048
   let hopSize = opts?.hopSize || (frameSize >> 2)
   let win = hannWindow(frameSize)
-  let synHop = hopSize
-  let anaHop = hopSize / factor
+  let anaHop = factor >= 1 ? hopSize : Math.round(hopSize / factor)
+  let synHop = factor >= 1 ? Math.round(hopSize * factor) : hopSize
 
   let inBuf = new Float32Array(frameSize * 4)
   let inLen = 0
@@ -60,8 +66,7 @@ ola.stream = function (opts) {
   }
 
   function run() {
-    while (Math.round(aPos) + frameSize <= inLen) {
-      let rp = Math.round(aPos)
+    while (aPos + frameSize <= inLen) {
       let need = sPos + frameSize
       if (need > outBuf.length) {
         let len = need * 2
@@ -70,13 +75,13 @@ ola.stream = function (opts) {
         outBuf = ob; normBuf = nb
       }
       for (let i = 0; i < frameSize; i++) {
-        outBuf[sPos + i] += (inBuf[rp + i] || 0) * win[i]
+        outBuf[sPos + i] += inBuf[aPos + i] * win[i]
         normBuf[sPos + i] += win[i]
       }
       aPos += anaHop
       sPos += synHop
     }
-    let used = Math.floor(aPos)
+    let used = aPos
     if (used > frameSize * 2) {
       let trim = used - frameSize
       inBuf.copyWithin(0, trim, inLen)

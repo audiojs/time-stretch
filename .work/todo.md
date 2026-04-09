@@ -20,15 +20,22 @@
 - [x] OLA (ola.js) — simplest baseline
 - [x] PSOLA (psola.js) — pitch-synchronous OLA for speech/monophonic
 - [x] PaulStretch (paulstretch.js) — extreme time stretching
-- [ ] Research sinusoidal modeling feasibility (McAulay-Quatieri) — defer
+- [x] Research sinusoidal modeling feasibility (McAulay-Quatieri) — implemented as sms.js: peak detection + sinusoidal tracking + IFFT synthesis, batch + streaming, 128 tests passing
 
 ### Phase 4: Package quality
 - [x] Granular exports in package.json
-- [ ] TypeScript declarations (index.d.ts)
+- [x] TypeScript declarations (index.d.ts)
 - [x] README.md (API reference, algorithm comparison, usage examples)
-- [ ] Benchmark: CPU cost per algorithm
-- [ ] Test multi-channel handling (stereo)
-- [ ] Test extreme ratios (0.1x, 10x, 100x)
+- [x] Benchmark: CPU cost per algorithm
+- [x] Test multi-channel handling (stereo)
+- [x] Test extreme ratios (0.1x, 10x, 100x)
+
+### Phase 4.5: Comparative quality research
+- [x] Benchmark script (bench.js): CPU cost per algorithm, batch + streaming
+- [x] Compare script (compare.js → compare.html): waveform + audio playback per algo/factor
+- [x] Reference signals: sine, chord, sweep, impulse train, synthetic vowel
+- [x] Document findings in README (Quality notes section)
+- [x] Real audio samples via `node scripts/compare.js` (generates interactive HTML)
 
 ### Phase 5: Integration
 - [ ] Create fn/stretch.js in audio package

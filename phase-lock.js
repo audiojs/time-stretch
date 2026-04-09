@@ -1,4 +1,4 @@
-import { stftBatch, stftStream } from './stft.js'
+import { stftBatch, stftStream, writer } from './stft.js'
 import { wrapPhase, lockPhase } from './util.js'
 
 function lock(mag, phase, state, ctx) {
@@ -25,10 +25,7 @@ function lock(mag, phase, state, ctx) {
 }
 
 export default function phaseLock(data, opts) {
+  if (!(data instanceof Float32Array)) return writer(stftStream(lock, data))
   if ((opts?.factor ?? 1) === 1) return new Float32Array(data)
   return stftBatch(data, lock, opts)
-}
-
-phaseLock.stream = function (opts) {
-  return stftStream(lock, opts)
 }

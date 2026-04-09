@@ -1,6 +1,11 @@
 import { hannWindow, normalize } from './util.js'
 
 export default function wsola(data, opts) {
+  if (!(data instanceof Float32Array)) {
+    let s = wsolaStream(data)
+    return (chunk) => chunk ? s.write(chunk) : s.flush()
+  }
+
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
@@ -54,7 +59,7 @@ export default function wsola(data, opts) {
   return out
 }
 
-wsola.stream = function (opts) {
+function wsolaStream(opts) {
   let factor = opts?.factor ?? 1
   let frameSize = opts?.frameSize || 1024
   let hopSize = opts?.hopSize || (frameSize >> 2)

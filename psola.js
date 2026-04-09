@@ -7,14 +7,21 @@
  * @returns {Float32Array} time-stretched audio
  */
 
+import wsola from './wsola.js'
+
 const PI2 = Math.PI * 2
 
-function detectPeriod(data, pos, minP, maxP, end) {
-  if (pos + maxP * 2 > end) return 0
-  let best = 0, bestVal = -Infinity
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
+  if (pos + maxP * 2 > end) return { period: 0, score: 0 }
+
+  let corr = new Float64Array(maxP + 1)
+  let n = maxP
   for (let lag = minP; lag <= maxP; lag++) {
     let sum = 0, e1 = 0, e2 = 0
-    let n = maxP * 2 - lag
     for (let i = 0; i < n; i++) {
       let a = data[pos + i], b = data[pos + i + lag]
       sum += a * b
@@ -22,26 +29,299 @@ function detectPeriod(data, pos, minP, maxP, end) {
       e2 += b * b
     }
     let d = Math.sqrt(e1 * e2)
-    let c = d > 1e-10 ? sum / d : 0
-    if (c > bestVal) { bestVal = c; best = lag }
+    corr[lag] = d > 1e-10 ? sum / d : 0
   }
-  return bestVal > 0.3 ? best : 0
+
+  let best = 0
+  let bestScore = 0
+  let bestMetric = -Infinity
+
+  for (let lag = minP + 1; lag < maxP; lag++) {
+    if (corr[lag] < 0.3 || corr[lag] < corr[lag - 1] || corr[lag] < corr[lag + 1]) continue
+
+    let score = corr[lag]
+    let metric = score
+    if (prevPeriod > 0) metric += 0.18 * Math.max(-1, 1 - Math.abs(Math.log(lag / prevPeriod)))
+
+    let doubled = lag * 2
+    if (doubled < maxP && corr[doubled] >= score * 0.88 && corr[doubled] >= corr[doubled - 1] && corr[doubled] >= corr[doubled + 1]) {
+      let doubledMetric = corr[doubled]
+      if (prevPeriod > 0) doubledMetric += 0.18 * Math.max(-1, 1 - Math.abs(Math.log(doubled / prevPeriod)))
+      if (doubledMetric > metric) {
+        lag = doubled
+        score = corr[lag]
+        metric = doubledMetric
+      }
+    }
+
+    if (metric > bestMetric) {
+      bestMetric = metric
+      bestScore = score
+      best = lag
+    }
+  }
+
+  if (!best) {
+    let bestVal = -Infinity
+    for (let lag = minP; lag <= maxP; lag++) {
+      if (corr[lag] > bestVal) {
+        bestVal = corr[lag]
+        best = lag
+        bestScore = corr[lag]
+      }
+    }
+  }
+
+  if (bestScore <= 0.35 || !best) return { period: 0, score: Math.max(0, bestScore) }
+
+  let period = best
+  if (best > minP && best < maxP) {
+    let ym1 = corr[best - 1]
+    let y0 = corr[best]
+    let yp1 = corr[best + 1]
+    let denom = ym1 - 2 * y0 + yp1
+    if (Math.abs(denom) > 1e-8) period += clamp(0.5 * (ym1 - yp1) / denom, -0.5, 0.5)
+  }
+
+  return { period, score: bestScore }
 }
 
-function grain(data, aPos, period, out, norm, sPos, outLen) {
-  let winLen = period * 2
-  let sStart = sPos - period
-  for (let i = 0; i < winLen; i++) {
-    let si = sStart + i
-    if (si < 0 || si >= outLen) continue
-    let ai = aPos - period + i
-    let w = 0.5 * (1 - Math.cos(PI2 * i / (winLen - 1 || 1)))
-    out[si] += (ai >= 0 && ai < data.length ? data[ai] : 0) * w
-    norm[si] += w
+function peakNear(data, center, radius) {
+  let start = Math.max(1, center - radius)
+  let end = Math.min(data.length - 2, center + radius)
+  let best = clamp(Math.round(center), start, end)
+  let bestVal = -Infinity
+  for (let i = start; i <= end; i++) {
+    let v = Math.abs(data[i])
+    if (v >= Math.abs(data[i - 1]) && v >= Math.abs(data[i + 1])) {
+      let score = v - 0.08 * Math.abs(i - center) / Math.max(1, radius)
+      if (score > bestVal) {
+        best = i
+        bestVal = score
+      }
+    }
   }
+  if (bestVal > -Infinity) return best
+
+  for (let i = start; i <= end; i++) {
+    let score = Math.abs(data[i]) - 0.08 * Math.abs(i - center) / Math.max(1, radius)
+    if (score > bestVal) {
+      best = i
+      bestVal = score
+    }
+  }
+  return best
+}
+
+function smoothPeriods(periods, voiced, defP) {
+  if (!periods.length) return periods
+
+  let out = periods.slice()
+  for (let pass = 0; pass < 2; pass++) {
+    let next = out.slice()
+    for (let i = 0; i < out.length; i++) {
+      if (!voiced[i]) continue
+      let win = []
+      for (let k = Math.max(0, i - 2); k <= Math.min(out.length - 1, i + 2); k++) {
+        if (voiced[k]) win.push(out[k])
+      }
+      if (win.length < 3) continue
+      win.sort((a, b) => a - b)
+      let med = win[Math.floor(win.length / 2)]
+      next[i] = clamp(0.6 * out[i] + 0.4 * med, med * 0.75, med * 1.35)
+    }
+    out = next
+  }
+
+  let firstVoiced = out.findIndex((_, i) => voiced[i])
+  let seed = firstVoiced >= 0 ? out[firstVoiced] : defP
+  let prev = seed
+  for (let i = 0; i < out.length; i++) {
+    if (voiced[i]) {
+      out[i] = clamp(out[i], prev * 0.8, prev * 1.25)
+      prev = out[i]
+    }
+    else out[i] = prev || seed
+  }
+
+  let next = prev || seed
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (voiced[i]) next = out[i]
+    else out[i] = next || seed
+  }
+
+  return out
+}
+
+function pitchContour(data, minP, maxP, defP) {
+  let start = maxP * 2
+  let end = data.length - maxP * 2
+  if (end <= start) return null
+
+  let hop = Math.max(8, Math.floor(minP / 2))
+  let periods = []
+  let scores = []
+  let voiced = []
+  let prevPeriod = defP
+
+  for (let center = start; center <= end; center += hop) {
+    let { period, score } = detectPeriod(data, center - maxP, minP, maxP, data.length, prevPeriod)
+    let isVoiced = score >= 0.42 && period > 0
+    periods.push(isVoiced ? period : prevPeriod)
+    scores.push(score)
+    voiced.push(isVoiced)
+    if (isVoiced) prevPeriod = period
+  }
+
+  return { start, hop, periods: smoothPeriods(periods, voiced, defP), scores, voiced }
+}
+
+function periodAt(contour, pos) {
+  let x = (pos - contour.start) / contour.hop
+  if (x <= 0) return contour.periods[0]
+  if (x >= contour.periods.length - 1) return contour.periods[contour.periods.length - 1]
+  let i = Math.floor(x)
+  let frac = x - i
+  return contour.periods[i] * (1 - frac) + contour.periods[i + 1] * frac
+}
+
+function voicedAt(contour, pos) {
+  let i = clamp(Math.round((pos - contour.start) / contour.hop), 0, contour.voiced.length - 1)
+  return contour.voiced[i] && contour.scores[i] >= 0.4
+}
+
+function findAnchor(contour) {
+  for (let i = 1; i < contour.voiced.length - 1; i++) {
+    if (contour.voiced[i - 1] && contour.voiced[i] && contour.voiced[i + 1]) return i
+  }
+
+  let best = -1
+  let bestScore = 0
+  for (let i = 0; i < contour.voiced.length; i++) {
+    if (contour.voiced[i] && contour.scores[i] > bestScore) {
+      best = i
+      bestScore = contour.scores[i]
+    }
+  }
+  return best
+}
+
+function marks(data, contour, minP, maxP) {
+  let anchorIdx = findAnchor(contour)
+  if (anchorIdx < 0) return { markPos: [], periods: [], voiced: [] }
+
+  let anchorCenter = contour.start + anchorIdx * contour.hop
+  let anchorPeriod = periodAt(contour, anchorCenter)
+  let anchorMark = peakNear(data, anchorCenter, Math.max(4, Math.floor(anchorPeriod * 0.35)))
+
+  let headMarks = []
+  let headPeriods = []
+  let headVoiced = []
+  let pos = anchorMark
+  while (pos > minP) {
+    let period = periodAt(contour, pos)
+    let predicted = pos - period
+    if (predicted <= 0) break
+    let nextPeriod = periodAt(contour, predicted)
+    let isVoiced = voicedAt(contour, predicted)
+    let radius = Math.max(4, Math.floor(nextPeriod * 0.35))
+    let mark = isVoiced ? peakNear(data, predicted, radius) : Math.round(predicted)
+    let minStep = Math.max(1, Math.floor(nextPeriod * 0.55))
+    let maxStep = Math.max(minStep + 1, Math.ceil(nextPeriod * 1.8))
+    let step = pos - mark
+    if (step < minStep) mark = pos - minStep
+    if (step > maxStep) mark = pos - maxStep
+    if (mark <= 0 || mark >= pos) break
+    headMarks.push(mark)
+    headPeriods.push(nextPeriod)
+    headVoiced.push(isVoiced)
+    pos = mark
+  }
+
+  let markPos = headMarks.reverse()
+  let periods = headPeriods.reverse()
+  let voiced = headVoiced.reverse()
+
+  markPos.push(anchorMark)
+  periods.push(anchorPeriod)
+  voiced.push(true)
+
+  pos = anchorMark
+  while (pos + minP < data.length) {
+    let period = periodAt(contour, pos)
+    let predicted = pos + period
+    if (predicted + minP >= data.length) break
+    let nextPeriod = periodAt(contour, predicted)
+    let isVoiced = voicedAt(contour, predicted)
+    let radius = Math.max(4, Math.floor(nextPeriod * 0.35))
+    let mark = isVoiced ? peakNear(data, predicted, radius) : Math.round(predicted)
+    let minStep = Math.max(1, Math.floor(nextPeriod * 0.55))
+    let maxStep = Math.max(minStep + 1, Math.ceil(nextPeriod * 1.8))
+    let step = mark - pos
+    if (step < minStep) mark = pos + minStep
+    if (step > maxStep) mark = pos + maxStep
+    if (mark <= pos || mark >= data.length) break
+    markPos.push(mark)
+    periods.push(nextPeriod)
+    voiced.push(isVoiced)
+    pos = mark
+  }
+
+  return { markPos, periods, voiced }
+}
+
+function addGrain(data, srcPos, left, right, out, norm, dstPos) {
+  left = Math.max(1, Math.round(left))
+  right = Math.max(1, Math.round(right))
+  let len = left + right
+  for (let i = -left; i < right; i++) {
+    let si = srcPos + i
+    let di = dstPos + i
+    if (si < 0 || si >= data.length || di < 0 || di >= out.length) continue
+    let phase = (i + left) / len
+    let w = 0.5 * (1 - Math.cos(PI2 * phase))
+    out[di] += data[si] * w
+    norm[di] += w
+  }
+}
+
+function render(data, outLen, factor, markPos, periods, voiced, minP, maxP) {
+  let out = new Float32Array(outLen)
+  let norm = new Float32Array(outLen)
+  if (!markPos.length) return { out, norm }
+
+  let synPos = Math.round(markPos[0] * factor)
+  let cursor = 0
+  let last = markPos.length - 1
+
+  while (synPos < outLen) {
+    let srcTime = synPos / factor
+    if (srcTime > markPos[last] + periods[last]) break
+
+    while (cursor + 1 < markPos.length && markPos[cursor + 1] <= srcTime) cursor++
+
+    let best = cursor
+    if (cursor + 1 < markPos.length && Math.abs(markPos[cursor + 1] - srcTime) < Math.abs(markPos[cursor] - srcTime)) best = cursor + 1
+
+    let left = best > 0 ? markPos[best] - markPos[best - 1] : periods[best]
+    let right = best < last ? markPos[best + 1] - markPos[best] : periods[best]
+    left = clamp(left, minP, maxP * 2)
+    right = clamp(right, minP, maxP * 2)
+
+    addGrain(data, markPos[best], left, right, out, norm, Math.round(synPos))
+
+    let step = voiced[best] ? periods[best] : 0.5 * (left + right)
+    synPos += clamp(step, minP * 0.75, maxP * 1.25)
+  }
+
+  return { out, norm }
 }
 
 export default function psola(data, opts) {
+  if (!(data instanceof Float32Array)) {
+    return wsola(data)
+  }
+
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
@@ -52,100 +332,21 @@ export default function psola(data, opts) {
 
   let n = data.length
   let outLen = Math.round(n * factor)
-  let out = new Float32Array(outLen)
-  let norm = new Float32Array(outLen)
+  if (n < maxP * 6) return wsola(data, { factor })
 
-  let aPos = maxP, synPos = maxP * factor
-  while (aPos + maxP < n) {
-    let period = detectPeriod(data, aPos - maxP, minP, maxP, n) || defP
-    grain(data, aPos, period, out, norm, Math.round(synPos), outLen)
-    aPos += period
-    synPos += period * factor
-  }
+  let contour = pitchContour(data, minP, maxP, defP)
+  if (!contour) return wsola(data, { factor })
+
+  let { markPos, periods, voiced } = marks(data, contour, minP, maxP)
+  if (markPos.length < 4) return wsola(data, { factor })
+
+  let voicedCount = 0
+  for (let i = 0; i < voiced.length; i++) if (voiced[i]) voicedCount++
+  if (voicedCount < Math.max(4, voiced.length * 0.2)) return wsola(data, { factor })
+
+  let { out, norm } = render(data, outLen, factor, markPos, periods, voiced, minP, maxP)
+  if (norm.every((value) => value <= 1e-8)) return wsola(data, { factor })
 
   for (let i = 0; i < outLen; i++) if (norm[i] > 1e-8) out[i] /= norm[i]
   return out
-}
-
-psola.stream = function (opts) {
-  let factor = opts?.factor ?? 1
-  let sr = opts?.sampleRate || 44100
-  let minP = Math.floor(sr / (opts?.maxFreq || 500))
-  let maxP = Math.ceil(sr / (opts?.minFreq || 80))
-  let defP = Math.round((minP + maxP) / 2)
-
-  let inBuf = new Float32Array(maxP * 16)
-  let inLen = 0
-  let outBuf = new Float32Array(maxP * 32)
-  let normBuf = new Float32Array(maxP * 32)
-  let aPos = maxP, sPos = maxP * factor, oRead = 0
-
-  function appendIn(chunk) {
-    let need = inLen + chunk.length
-    if (need > inBuf.length) {
-      let nb = new Float32Array(Math.max(need * 2, inBuf.length * 2))
-      nb.set(inBuf.subarray(0, inLen))
-      inBuf = nb
-    }
-    inBuf.set(chunk, inLen)
-    inLen += chunk.length
-  }
-
-  function run() {
-    while (aPos + maxP < inLen) {
-      let period = detectPeriod(inBuf, aPos - maxP, minP, maxP, inLen) || defP
-      let sSt = Math.round(sPos)
-      let need = sSt + period + 1
-      if (need > outBuf.length) {
-        let len = Math.max(need * 2, outBuf.length * 2)
-        let ob = new Float32Array(len), nb = new Float32Array(len)
-        ob.set(outBuf); nb.set(normBuf)
-        outBuf = ob; normBuf = nb
-      }
-      grain(inBuf, aPos, period, outBuf, normBuf, sSt, outBuf.length)
-      aPos += period
-      sPos += period * factor
-    }
-    // trim consumed input
-    let safe = Math.floor(aPos) - maxP * 2
-    if (safe > maxP * 4) {
-      let trim = safe
-      inBuf.copyWithin(0, trim, inLen)
-      inLen -= trim
-      aPos -= trim
-    }
-  }
-
-  function take(upTo) {
-    upTo = Math.min(upTo, Math.round(sPos) - maxP)
-    if (upTo <= oRead) return new Float32Array(0)
-    let len = Math.floor(upTo - oRead)
-    let out = new Float32Array(len)
-    for (let i = 0; i < len; i++) {
-      let j = oRead + i
-      out[i] = normBuf[j] > 1e-8 ? outBuf[j] / normBuf[j] : 0
-    }
-    oRead += len
-    if (oRead > maxP * 16) {
-      let shift = oRead
-      outBuf.copyWithin(0, shift)
-      normBuf.copyWithin(0, shift)
-      sPos -= shift
-      oRead = 0
-      outBuf.fill(0, Math.ceil(sPos))
-      normBuf.fill(0, Math.ceil(sPos))
-    }
-    return out
-  }
-
-  return {
-    write(chunk) {
-      appendIn(chunk)
-      run()
-      return take(Math.round(sPos) - maxP)
-    },
-    flush() {
-      return take(Math.round(sPos))
-    }
-  }
 }

@@ -1,4 +1,4 @@
-import { stftBatch, stftStream } from './stft.js'
+import { stftBatch, stftStream, writer } from './stft.js'
 import { wrapPhase } from './util.js'
 
 // Spectral envelope via moving average of magnitude
@@ -55,18 +55,18 @@ function makeShift(ratio, envWidth) {
 }
 
 export default function formantShift(data, opts) {
+  if (!(data instanceof Float32Array)) {
+    opts = data
+    let semitones = opts?.semitones ?? 0
+    let ratio = opts?.ratio ?? (semitones ? Math.pow(2, semitones / 12) : 1)
+    let N = opts?.frameSize || 2048
+    let width = opts?.envelopeWidth || Math.round(N / 64)
+    return writer(stftStream(makeShift(ratio, width), { ...opts, factor: 1 }))
+  }
   let semitones = opts?.semitones ?? 0
   let ratio = opts?.ratio ?? (semitones ? Math.pow(2, semitones / 12) : 1)
   if (ratio === 1) return new Float32Array(data)
   let N = opts?.frameSize || 2048
   let width = opts?.envelopeWidth || Math.round(N / 64)
   return stftBatch(data, makeShift(ratio, width), { ...opts, factor: 1 })
-}
-
-formantShift.stream = function (opts) {
-  let semitones = opts?.semitones ?? 0
-  let ratio = opts?.ratio ?? (semitones ? Math.pow(2, semitones / 12) : 1)
-  let N = opts?.frameSize || 2048
-  let width = opts?.envelopeWidth || Math.round(N / 64)
-  return stftStream(makeShift(ratio, width), { ...opts, factor: 1 })
 }

@@ -1,4 +1,4 @@
-import { stftBatch, stftStream } from './stft.js'
+import { stftBatch, stftStream, writer } from './stft.js'
 import { wrapPhase, lockPhase } from './util.js'
 
 function detect(threshold) {
@@ -41,10 +41,8 @@ function detect(threshold) {
 }
 
 export default function transient(data, opts) {
+  let fn = detect(opts?.transientThreshold ?? data?.transientThreshold ?? 1.5)
+  if (!(data instanceof Float32Array)) return writer(stftStream(fn, data))
   if ((opts?.factor ?? 1) === 1) return new Float32Array(data)
-  return stftBatch(data, detect(opts?.transientThreshold ?? 1.5), opts)
-}
-
-transient.stream = function (opts) {
-  return stftStream(detect(opts?.transientThreshold ?? 1.5), opts)
+  return stftBatch(data, fn, opts)
 }

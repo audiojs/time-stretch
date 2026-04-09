@@ -1,6 +1,12 @@
 import { fft, ifft } from 'fourier-transform'
 import { hannWindow, PI2 } from './util.js'
 
+// Wrap { write, flush } stream object into simple writer function
+// write(chunk) → process, write() or write(null) → flush
+export function writer(s) {
+  return (chunk) => chunk ? s.write(chunk) : s.flush()
+}
+
 function frame(data, pos, win, half, process, state, ctx, sc) {
   let N = win.length
   let f = sc.f

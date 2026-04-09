@@ -2,6 +2,8 @@
 
 Collection of canonical timeless performant industry-standard time-stretching algorithms, usable for any audio purposes: WAA, worklets, audio etc. Code is compilable via jz to wasm.
 
+Comparative quality research: present algorithm results side-by-side on diverse samples (speech, music, percussion, polyphonic, extreme ratios) so users can hear and see the tradeoffs. Educative, not marketing — let the algorithms speak.
+
 ---
 
 ## Audiences (NICE)
@@ -119,6 +121,7 @@ Provide the canonical collection of time-stretching and pitch-shifting algorithm
 - Ship with sensible defaults for 44.1kHz, scale automatically for other rates
 - Follow audiojs conventions: granular exports, tree-shakeable, zero-config, physical units
 - Compilable to WASM via jz for performance-critical paths
+- Provide comparative quality demo: process reference samples through all algorithms at various ratios, publish results as interactive page with waveform/spectrogram visualization and audio playback
 
 ### Non-goals
 - Not a DAW/framework — raw algorithms only

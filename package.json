@@ -2,7 +2,8 @@
   "name": "time-stretch",
   "version": "1.0.0",
   "type": "module",
-  "description": "Time stretching and pitch shifting: OLA, WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch, PSOLA",
+  "types": "index.d.ts",
+  "description": "Time stretching and pitch shifting: OLA, WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch, PSOLA, SMS",
   "sideEffects": false,
   "exports": {
     ".": "./index.js",
@@ -15,6 +16,7 @@
     "./psola": "./psola.js",
     "./pitch-shift": "./pitch-shift.js",
     "./formant-shift": "./formant-shift.js",
+    "./sms": "./sms.js",
     "./util": "./util.js"
   },
   "files": [
@@ -28,8 +30,10 @@
     "psola.js",
     "pitch-shift.js",
     "formant-shift.js",
+    "sms.js",
     "stft.js",
-    "util.js"
+    "util.js",
+    "index.d.ts"
   ],
   "scripts": {
     "test": "node test.js"
@@ -50,6 +54,8 @@
     "transient",
     "paulstretch",
     "psola",
+    "sms",
+    "sinusoidal",
     "tempo",
     "speed",
     "audio",
@@ -70,6 +76,7 @@
     "window-function": "^3.0.0"
   },
   "devDependencies": {
+    "audio-lena": "^3.0.0",
     "tst": "^9.4.0"
   }
 }

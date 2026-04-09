@@ -1,4 +1,4 @@
-import { stftBatch, stftStream } from './stft.js'
+import { stftBatch, stftStream, writer } from './stft.js'
 import { wrapPhase } from './util.js'
 
 function advance(mag, phase, state, ctx) {
@@ -25,10 +25,7 @@ function advance(mag, phase, state, ctx) {
 }
 
 export default function vocoder(data, opts) {
+  if (!(data instanceof Float32Array)) return writer(stftStream(advance, data))
   if ((opts?.factor ?? 1) === 1) return new Float32Array(data)
   return stftBatch(data, advance, opts)
-}
-
-vocoder.stream = function (opts) {
-  return stftStream(advance, opts)
 }
