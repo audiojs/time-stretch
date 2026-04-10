@@ -1,4 +1,4 @@
-# time-stretch [![test](https://github.com/audiojs/time-stretch/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/time-stretch/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/time-stretch)](https://www.npmjs.com/package/time-stretch) [![MIT](https://img.shields.io/badge/MIT-%E0%A5%90-white)](https://github.com/krishnized/license)
+# time-stretch [![test](https://github.com/audiojs/time-stretch/actions/workflows/test.yml/badge.svg)](https://github.com/audiojs/time-stretch/actions/workflows/test.yml) [![npm](https://img.shields.io/npm/v/time-stretch)](https://www.npmjs.com/package/time-stretch) [![license](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/audiojs/time-stretch/blob/main/LICENSE)
 
 Time stretching and pitch shifting.
 
@@ -545,6 +545,9 @@ Run `node scripts/compare.js` to generate an interactive comparison page with wa
 * Driedger, J. & Müller, M. (2016). "A review of time-scale modification of music signals." _Applied Sciences_, 6(2).
 
 
-## License
 
-[MIT ॐ](https://github.com/krishnized/license)
+<div align="center">
+
+[MIT](https://github.com/audiojs/time-stretch/blob/main/LICENSE) [ॐ](https://github.com/krishnized/license)
+
+</div>
