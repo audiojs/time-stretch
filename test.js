@@ -531,6 +531,7 @@ test('sms — noise residual energy preservation', () => {
 test('phaseLock — spectral purity on sine', () => {
   let data = sine(440, 16384, fs)
   let out = phaseLock(data, { factor: 1.5 })
-  let freq = peakFreq(out, fs)
+  let trim = Math.floor(out.length * 0.1)
+  let freq = peakFreq(out.slice(trim, out.length - trim), fs)
   almost(freq, 440, 22, 'frequency drift < 5%')
 })

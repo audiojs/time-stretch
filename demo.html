@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>time-stretch</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600&family=Chivo+Mono:wght@400;500&display=swap');
+
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#e9ebe7;--paper:#f6f7f3;--fg:#1f221f;--muted:#6e756d;
+  --line:#c4c9bf;--line-soft:#d8ddd4;--accent:#ca6b63;--ok:#6f8c6a;
+  --dim:#9aa196;--bad:#bf655d;--sans:'Archivo',system-ui,sans-serif;--mono:'Chivo Mono',monospace;
+}
+
+body{
+  font:400 14px/1.45 var(--sans);
+  color:var(--fg);
+  background:linear-gradient(180deg,var(--paper),var(--bg));
+  padding:44px 44px 60px;
+  max-width:1400px;
+  margin:0 auto;
+}
+h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-transform:uppercase;margin-bottom:8px}
+.subtitle{font:400 11px/1.4 var(--mono);color:var(--muted);margin-bottom:30px;letter-spacing:0.03em}
+
+/* source selector */
+.source-bar{display:flex;align-items:center;gap:10px;margin-bottom:28px;flex-wrap:wrap}
+.source-bar label{font:600 10px/1 var(--sans);color:var(--muted);text-transform:uppercase;letter-spacing:0.18em}
+.source-btn{
+  font:400 12px/1 var(--sans);padding:7px 15px;border:1px solid var(--line);border-radius:0;
+  background:var(--paper);color:var(--fg);cursor:pointer;transition:all .12s ease;letter-spacing:0.02em;
+}
+.source-btn:hover{border-color:var(--fg);background:color-mix(in oklch,var(--paper) 92%,var(--fg) 8%)}
+.source-btn.active{border-color:var(--fg);background:var(--fg);color:var(--paper)}
+.source-btn:disabled{opacity:.3;cursor:default}
+
+.tool-bar{display:flex;align-items:center;gap:10px;margin:-8px 0 18px;flex-wrap:wrap}
+.tool-bar label{font:600 10px/1 var(--sans);color:var(--muted);text-transform:uppercase;letter-spacing:0.18em}
+.wave-btn{
+  font:400 11px/1 var(--sans);padding:6px 12px;border:1px solid var(--line);border-radius:999px;
+  background:transparent;color:var(--muted);cursor:pointer;transition:all .12s ease;
+}
+.wave-btn.active{border-color:var(--fg);color:var(--fg);background:color-mix(in oklch,var(--paper) 92%,var(--fg) 8%)}
+
+.benchbar{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 18px;
+}
+.bench-card{
+  border:1px solid var(--line);background:color-mix(in oklch,var(--paper) 96%,var(--bg) 4%);
+  padding:10px 12px 11px;min-height:58px;
+}
+.bench-card label{
+  display:block;font:600 9px/1 var(--sans);text-transform:uppercase;letter-spacing:0.18em;color:var(--muted);margin-bottom:8px;
+}
+.bench-card strong{display:block;font:500 15px/1 var(--sans);color:var(--fg)}
+.bench-card span{display:block;font:400 10px/1.4 var(--mono);color:var(--dim);margin-top:5px}
+.bench-legend{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bench-legend span{display:inline-flex;align-items:center;gap:6px;font:400 10px/1 var(--mono);color:var(--muted)}
+.bench-legend i{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--line)}
+.bench-legend .fast i{background:var(--ok)}
+.bench-legend .mid i{background:var(--dim)}
+.bench-legend .slow i{background:var(--bad)}
+
+/* status */
+#status{font:400 11px/1 var(--mono);color:var(--muted);margin-left:auto;white-space:nowrap}
+#status.busy{color:var(--ok)}
+
+/* grid */
+.grid{
+  display:grid;
+  grid-template-columns:minmax(105px,150px) repeat(3,1fr);
+  gap:0;
+  border:1px solid var(--fg);
+  background:var(--paper);
+  box-shadow:0 1px 0 color-mix(in oklch,var(--fg) 10%,transparent);
+}
+.grid-hdr{
+  font:600 9px/1 var(--sans);text-transform:uppercase;letter-spacing:0.18em;
+  padding:12px 12px 11px;border-bottom:1px solid var(--line);color:var(--muted);
+}
+.grid-hdr:first-child{border-right:1px solid var(--line)}
+.algo-label{
+  font:500 12px/1 var(--sans);padding:13px 12px;
+  border-bottom:1px solid var(--line-soft);border-right:1px solid var(--line);
+  display:flex;align-items:center;gap:6px;
+}
+.algo-label .tag{font:400 8px/1 var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:0.07em;white-space:nowrap}
+
+.cell{
+  padding:8px 10px;border-bottom:1px solid var(--line-soft);
+  display:flex;align-items:center;gap:8px;min-height:52px;position:relative;
+}
+.cell audio{width:0;height:0;position:absolute}
+.play-btn{
+  width:22px;height:22px;border-radius:50%;border:1px solid var(--line);
+  background:var(--paper);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .12s ease;flex-shrink:0;z-index:1;
+}
+.play-btn:hover{border-color:var(--fg);background:color-mix(in oklch,var(--paper) 94%,var(--fg) 6%)}
+.play-btn.playing{border-color:var(--accent);background:var(--accent)}
+.play-btn svg{width:8px;height:8px;fill:var(--fg)}
+.play-btn.playing svg{fill:var(--paper)}
+
+.metric{
+  font:400 10px/1 var(--mono);color:var(--dim);white-space:nowrap;z-index:1;flex-shrink:0;
+  display:inline-flex;align-items:center;gap:6px;padding:0 0 0 1px;
+}
+.metric::before{
+  content:'';width:7px;height:7px;border-radius:50%;display:inline-block;
+  background:var(--line);box-shadow:inset 0 0 0 1px color-mix(in oklch,var(--fg) 8%,transparent);
+}
+.metric b{color:var(--muted);font-weight:500}
+.metric.fast{color:var(--ok)}
+.metric.fast b{color:var(--ok)}
+.metric.fast::before{background:var(--ok)}
+.metric.slow{color:var(--bad)}
+.metric.slow b{color:var(--bad)}
+.metric.slow::before{background:var(--bad)}
+
+.wave-canvas{flex:1 1 0;min-width:0;height:30px;width:100%;--wave-color:var(--dim)}
+
+.cell.empty{color:var(--muted);font:400 10px/1 var(--mono);font-style:normal;letter-spacing:0.02em}
+
+/* original row */
+.orig-row{background:color-mix(in oklch,var(--ok) 4%,transparent)}
+.orig-row .algo-label{color:var(--accent);font-weight:500}
+.orig-row .wave-canvas{--wave-color:var(--accent)}
+
+/* skeleton */
+.cell.loading{position:relative;overflow:hidden}
+.cell.loading::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent 30%,color-mix(in oklch,var(--fg) 4%,transparent) 50%,transparent 70%);
+  animation:shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+/* footer */
+.footer{margin-top:22px;font:400 10px/1.8 var(--mono);color:var(--dim);letter-spacing:0.01em}
+.footer a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line)}
+.footer a:hover{color:var(--fg);border-color:var(--fg)}
+
+@media(max-width:700px){
+  body{padding:22px 16px 34px}
+  .benchbar{grid-template-columns:1fr 1fr}
+  .grid{grid-template-columns:minmax(80px,110px) repeat(3,1fr)}
+  .algo-label .tag{display:none}
+}
+</style>
+</head>
+<body>
+
+<h1>time-stretch</h1>
+<p class="subtitle">Time stretching &amp; pitch shifting — 10 algorithms, live in-browser</p>
+
+<div class="source-bar">
+  <label>Source</label>
+  <button class="source-btn active" data-src="tone">Tone 440 Hz</button>
+  <button class="source-btn" data-src="chord">Chord</button>
+  <button class="source-btn" data-src="perc">Percussion</button>
+  <button class="source-btn" data-src="voice">Voice (Lena)</button>
+  <span id="status"></span>
+</div>
+
+<div class="tool-bar">
+  <label>Waveform</label>
+  <button class="wave-btn active" data-wave="raw">Raw</button>
+  <button class="wave-btn" data-wave="envelope">Envelope</button>
+</div>
+
+<div class="benchbar" id="benchbar"></div>
+
+<div class="grid" id="grid"></div>
+
+<div class="footer">
+  Processed in-browser with Web Audio API.
+  Each cell = <code>fn(samples, {factor})</code>, timed with <code>performance.now()</code>.
+  <br>Source: <a href="https://github.com/nicholasgasior/audio-lena">audio-lena</a> (voice),
+  synthesized (tone, chord, percussion).
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "fourier-transform": "./node_modules/fourier-transform/index.js",
+    "window-function": "./node_modules/window-function/index.js",
+    "time-stretch": "./index.js"
+  }
+}
+</script>
+<script type="module">
+import { ola, wsola, vocoder, phaseLock, transient, paulstretch, psola, formantShift, sms } from 'time-stretch'
+
+const SR = 44100
+const PI2 = Math.PI * 2
+const FACTORS = [0.5, 1.5, 2]
+let waveMode = 'raw'
+const ALGOS = [
+  { name: 'ola',         fn: ola,         tag: 'OLA' },
+  { name: 'wsola',       fn: wsola,       tag: 'WSOLA' },
+  { name: 'vocoder',     fn: vocoder,     tag: 'spectral' },
+  { name: 'phaseLock',   fn: phaseLock,   tag: 'spectral' },
+  { name: 'transient',   fn: transient,   tag: 'spectral' },
+  { name: 'paulstretch', fn: paulstretch, tag: 'spectral',  stretchOnly: true },
+  { name: 'psola',       fn: psola,       tag: 'pitch-sync', needsSR: true },
+  { name: 'formantShift',fn: formantShift,tag: 'formant',
+    labels: ['−5 st', '0 st', '+5 st'],
+    opts: fi => ({ semitones: [-5, 0, 5][fi] }) },
+  { name: 'sms',         fn: sms,         tag: 'sinusoidal' },
+]
+
+// ── signal generators ─────────────────────
+function genTone(dur = 2) {
+  let n = Math.round(dur * SR), d = new Float32Array(n)
+  for (let i = 0; i < n; i++) d[i] = 0.7 * Math.sin(PI2 * 440 * i / SR)
+  // gentle fade
+  let fade = Math.min(500, n >> 2)
+  for (let i = 0; i < fade; i++) { let g = i / fade; d[i] *= g; d[n - 1 - i] *= g }
+  return d
+}
+
+function genChord(dur = 2) {
+  let freqs = [261.6, 329.6, 392], n = Math.round(dur * SR), d = new Float32Array(n)
+  let amp = 0.6 / freqs.length
+  for (let i = 0; i < n; i++) for (let f of freqs) d[i] += Math.sin(PI2 * f * i / SR) * amp
+  let fade = Math.min(500, n >> 2)
+  for (let i = 0; i < fade; i++) { let g = i / fade; d[i] *= g; d[n - 1 - i] *= g }
+  return d
+}
+
+function genPerc(dur = 2) {
+  let n = Math.round(dur * SR), d = new Float32Array(n)
+  // 4 hits in duration
+  let hits = 4, spacing = Math.floor(n / hits)
+  for (let h = 0; h < hits; h++) {
+    let off = h * spacing
+    // sharp attack, exponential decay with pitched body
+    let freq = 80 + h * 20
+    let len = Math.min(Math.floor(SR * 0.3), n - off)
+    for (let i = 0; i < len; i++) {
+      let env = Math.exp(-i / (SR * 0.04))
+      // noise burst + pitched body
+      let noise = (Math.random() * 2 - 1) * Math.exp(-i / (SR * 0.005))
+      let body = Math.sin(PI2 * freq * i / SR) * env
+      d[off + i] += (noise * 0.4 + body * 0.6) * 0.7
+    }
+  }
+  return d
+}
+
+async function loadLena() {
+  let resp = await fetch('./node_modules/audio-lena/lena.mp3')
+  let buf = await resp.arrayBuffer()
+  let ctx = new OfflineAudioContext(1, SR * 13, SR)
+  let abuf = await ctx.decodeAudioData(buf)
+  // take ~2 seconds of speech
+  let full = abuf.getChannelData(0)
+  let start = Math.floor(SR * 1.5), len = Math.floor(SR * 2)
+  let d = new Float32Array(len)
+  d.set(full.subarray(start, start + len))
+  let fade = 400
+  for (let i = 0; i < fade; i++) { let g = i / fade; d[i] *= g; d[len - 1 - i] *= g }
+  return d
+}
+
+// ── audio playback ────────────────────────
+let actx = null, playing = null
+
+function ensureCtx() {
+  if (!actx) actx = new AudioContext({ sampleRate: SR })
+  return actx
+}
+
+function play(samples, btn) {
+  let ctx = ensureCtx()
+  // stop current
+  if (playing) { playing.src.stop(); playing.btn.classList.remove('playing'); if (playing.btn === btn) { playing = null; return } }
+  let buf = ctx.createBuffer(1, samples.length, SR)
+  buf.getChannelData(0).set(samples)
+  let src = ctx.createBufferSource()
+  src.buffer = buf
+  src.connect(ctx.destination)
+  src.start()
+  btn.classList.add('playing')
+  playing = { src, btn }
+  src.onended = () => { btn.classList.remove('playing'); if (playing?.src === src) playing = null }
+}
+
+// ── process + measure ─────────────────────
+function process(algo, samples, factor, fi) {
+  let opts = algo.opts ? algo.opts(fi) : { factor, ...(algo.needsSR ? { sampleRate: SR } : {}) }
+  let t0 = performance.now()
+  let out = algo.fn(samples, opts)
+  let ms = performance.now() - t0
+  let durMs = samples.length / SR * 1000
+  let xrt = durMs / Math.max(ms, 1e-6)
+  return { out, ms, xrt }
+}
+
+// Draw centered per-pixel min/max waveform for predictable rendering across sources.
+function drawWave(canvas, samples, color) {
+  let dpr = window.devicePixelRatio || 1
+  let w = canvas.clientWidth, h = canvas.clientHeight
+  canvas.width = w * dpr; canvas.height = h * dpr
+  let ctx = canvas.getContext('2d')
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.clearRect(0, 0, w, h)
+
+  let mid = h / 2
+  let peak = 1e-6
+  for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]))
+  let scale = (h * 0.42) / peak
+  let step = samples.length / Math.max(1, w)
+  let raw = waveMode === 'raw'
+
+  ctx.strokeStyle = color || getComputedStyle(canvas).getPropertyValue('--wave-color')?.trim() || '#9a9488'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  for (let x = 0; x < w; x++) {
+    let i0 = Math.floor(x * step)
+    let i1 = Math.max(i0 + 1, Math.floor((x + 1) * step))
+    let min = 1, max = -1, absMax = 0
+    for (let i = i0; i < i1 && i < samples.length; i++) {
+      let s = samples[i]
+      if (s < min) min = s
+      if (s > max) max = s
+      let a = Math.abs(s)
+      if (a > absMax) absMax = a
+    }
+    let lo = raw ? min : -absMax
+    let hi = raw ? max : absMax
+    ctx.moveTo(x + 0.5, mid + lo * scale)
+    ctx.lineTo(x + 0.5, mid + hi * scale)
+  }
+  ctx.stroke()
+
+  let lineColor = getComputedStyle(document.documentElement).getPropertyValue('--line')?.trim() || '#bdb7aa'
+  ctx.strokeStyle = lineColor
+  ctx.beginPath()
+  ctx.moveTo(0, mid + 0.5)
+  ctx.lineTo(w, mid + 0.5)
+  ctx.stroke()
+}
+
+// ── build grid ────────────────────────────
+const grid = document.getElementById('grid')
+const benchbar = document.getElementById('benchbar')
+const status = document.getElementById('status')
+
+function playSvg() { return '<svg viewBox="0 0 12 12"><polygon points="2,0 12,6 2,12"/></svg>' }
+
+function buildGrid() {
+  grid.innerHTML = ''
+  // header
+  grid.innerHTML += '<div class="grid-hdr">Algorithm</div>'
+  for (let f of FACTORS) grid.innerHTML += `<div class="grid-hdr">${f}×</div>`
+  // original row
+  grid.innerHTML += `<div class="algo-label orig-row">original</div>`
+  for (let [fi, f] of FACTORS.entries()) grid.innerHTML += `<div class="cell orig-row" id="orig-${fi}"></div>`
+  // algo rows
+  for (let a of ALGOS) {
+    grid.innerHTML += `<div class="algo-label">${a.name} <span class="tag">${a.tag}</span></div>`
+    for (let [fi, f] of FACTORS.entries()) {
+      let skip = a.stretchOnly && f < 1
+      let label = a.labels?.[fi] ?? ''
+      grid.innerHTML += `<div class="cell${skip ? ' empty' : ''}" id="${a.name}-${fi}">${skip ? '≥1× only' : ''}</div>`
+    }
+  }
+}
+
+function perfClass(xrt) {
+  if (xrt >= 10) return 'fast'
+  if (xrt < 4) return 'slow'
+  return ''
+}
+
+function formatXrt(xrt) {
+  if (xrt >= 1000) return '>999× rt'
+  if (xrt >= 100) return `${Math.round(xrt)}× rt`
+  return `${xrt.toFixed(1)}× rt`
+}
+
+function redrawWaves() {
+  document.querySelectorAll('.wave-canvas').forEach((canvas) => {
+    if (!canvas._samples) return
+    drawWave(canvas, canvas._samples, canvas._waveColor)
+  })
+}
+
+function updateBench(samples, runs = []) {
+  let dur = `${(samples.length / SR).toFixed(2)}s source`
+  let totalMs = runs.reduce((sum, run) => sum + run.ms, 0)
+  let sorted = [...runs].sort((a, b) => a.xrt - b.xrt)
+  let slowest = sorted[0]
+  let fastest = sorted[sorted.length - 1]
+  let median = sorted.length ? sorted[Math.floor(sorted.length / 2)].xrt : 0
+  benchbar.innerHTML = [
+    `<div class="bench-card"><label>Legend</label><div class="bench-legend"><span class="fast"><i></i>fast ≥10×</span><span class="mid"><i></i>steady 4–10×</span><span class="slow"><i></i>slow <4×</span></div><span>${dur}</span></div>`,
+    `<div class="bench-card"><label>Total</label><strong>${(totalMs / 1000).toFixed(2)}s</strong><span>${runs.length} renders for current source</span></div>`,
+    `<div class="bench-card"><label>Median</label><strong>${formatXrt(median).replace(' rt', '')}</strong><span>${slowest ? `slowest ${slowest.name} ${formatXrt(slowest.xrt).replace(' rt', '')}` : 'waiting for run'}</span></div>`,
+    `<div class="bench-card"><label>Fastest</label><strong>${fastest ? fastest.name : '—'}</strong><span>${fastest ? formatXrt(fastest.xrt).replace(' rt', ' realtime') : 'waiting for run'}</span></div>`,
+  ].join('')
+}
+
+function cellContent(samples, ms, xrt, label) {
+  let div = document.createElement('div')
+  div.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%'
+  let btn = document.createElement('button')
+  btn.className = 'play-btn'
+  btn.innerHTML = playSvg()
+  btn.onclick = () => play(samples, btn)
+  let cv = document.createElement('canvas')
+  cv.className = 'wave-canvas'
+  cv._samples = samples
+  cv._waveColor = ''
+  let met = document.createElement('span')
+  let cls = perfClass(xrt)
+  met.className = cls ? `metric ${cls}` : 'metric'
+  let summary = `${ms.toFixed(0)}ms · ${formatXrt(xrt)}`
+  met.innerHTML = label ? `<b>${label}</b> · ${summary}` : `<b>${summary}</b>`
+  div.appendChild(btn)
+  div.appendChild(cv)
+  div.appendChild(met)
+  // draw after layout
+  requestAnimationFrame(() => drawWave(cv, samples))
+  return div
+}
+
+function origContent(samples) {
+  let div = document.createElement('div')
+  div.style.cssText = 'display:flex;align-items:center;gap:8px;width:100%'
+  let btn = document.createElement('button')
+  btn.className = 'play-btn'
+  btn.innerHTML = playSvg()
+  btn.onclick = () => play(samples, btn)
+  let cv = document.createElement('canvas')
+  cv.className = 'wave-canvas'
+  let accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+  cv._samples = samples
+  cv._waveColor = accent
+  let met = document.createElement('span')
+  met.className = 'metric'
+  met.innerHTML = `${(samples.length / SR).toFixed(2)}s`
+  div.appendChild(btn)
+  div.appendChild(cv)
+  div.appendChild(met)
+  requestAnimationFrame(() => drawWave(cv, samples, accent))
+  return div
+}
+
+// ── run all ───────────────────────────────
+async function runSource(srcKey) {
+  status.textContent = srcKey === 'voice' ? 'Loading audio…' : 'Generating…'
+  status.className = 'busy'
+  buildGrid()
+
+  // mark all cells loading
+  for (let a of ALGOS) for (let [fi] of FACTORS.entries()) {
+    let cell = document.getElementById(`${a.name}-${fi}`)
+    if (!cell.classList.contains('empty')) cell.classList.add('loading')
+  }
+
+  await new Promise(r => setTimeout(r, 30))
+
+  let samples
+  if (srcKey === 'tone') samples = genTone()
+  else if (srcKey === 'chord') samples = genChord()
+  else if (srcKey === 'perc') samples = genPerc()
+  else samples = await loadLena()
+  let runs = []
+  updateBench(samples, runs)
+
+  // fill original row
+  for (let [fi] of FACTORS.entries()) {
+    let cell = document.getElementById(`orig-${fi}`)
+    cell.innerHTML = ''
+    cell.appendChild(origContent(samples))
+  }
+
+  let total = 0, count = 0
+  for (let a of ALGOS) {
+    for (let [fi, f] of FACTORS.entries()) {
+      let cell = document.getElementById(`${a.name}-${fi}`)
+      if (cell.classList.contains('empty')) continue
+      cell.classList.remove('loading')
+
+      status.textContent = `${a.name} ${a.labels?.[fi] ?? f+'×'}…`
+      await new Promise(r => setTimeout(r, 5))
+
+      try {
+        let { out, ms, xrt } = process(a, samples, f, fi)
+        cell.innerHTML = ''
+        cell.appendChild(cellContent(out, ms, xrt, a.labels?.[fi]))
+        runs.push({ name: a.name, label: a.labels?.[fi] ?? `${f}×`, ms, xrt })
+        total += ms; count++
+        updateBench(samples, runs)
+      } catch (e) {
+        cell.innerHTML = `<span class="metric slow">${e.message}</span>`
+      }
+    }
+  }
+
+  status.textContent = `${count} runs · ${(total / 1000).toFixed(1)}s total`
+  status.className = ''
+}
+
+// ── source buttons ────────────────────────
+document.querySelectorAll('.source-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.source-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    // stop playing
+    if (playing) { playing.src.stop(); playing.btn.classList.remove('playing'); playing = null }
+    runSource(btn.dataset.src)
+  }
+})
+
+document.querySelectorAll('.wave-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.wave-btn').forEach(b => b.classList.remove('active'))
+    btn.classList.add('active')
+    waveMode = btn.dataset.wave
+    redrawWaves()
+  }
+})
+
+buildGrid()
+updateBench(genTone(), [])
+runSource('tone')
+</script>
+</body>
+</html>

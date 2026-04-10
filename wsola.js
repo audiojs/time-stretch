@@ -1,5 +1,9 @@
 import { hannWindow, normalize } from './util.js'
 
+function overlapLength(frameSize, synHop, pos, limit) {
+  return Math.max(0, Math.min(frameSize - synHop, pos, limit - pos))
+}
+
 export default function wsola(data, opts) {
   if (!(data instanceof Float32Array)) {
     let s = wsolaStream(data)
@@ -9,9 +13,9 @@ export default function wsola(data, opts) {
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
-  let frameSize = opts?.frameSize || 1024
-  let hopSize = opts?.hopSize || (frameSize >> 2)
-  let delta = opts?.delta || (frameSize >> 2)
+  let frameSize = opts?.frameSize ?? 1024
+  let hopSize = opts?.hopSize ?? (frameSize >> 2)
+  let delta = opts?.delta ?? (frameSize >> 2)
 
   let inLen = data.length
   let outLen = Math.round(inLen * factor)
@@ -33,7 +37,7 @@ export default function wsola(data, opts) {
       let searchEnd = Math.min(inLen - frameSize, nomPos + delta)
       if (searchEnd < searchStart) break
 
-      let overlapLen = Math.min(frameSize, outLen - synPos)
+      let overlapLen = overlapLength(frameSize, synHop, synPos, outLen)
       let bestCorr = -Infinity, bestS = searchStart
 
       for (let s = searchStart; s <= searchEnd; s++) {
@@ -61,9 +65,9 @@ export default function wsola(data, opts) {
 
 function wsolaStream(opts) {
   let factor = opts?.factor ?? 1
-  let frameSize = opts?.frameSize || 1024
-  let hopSize = opts?.hopSize || (frameSize >> 2)
-  let delta = opts?.delta || (frameSize >> 2)
+  let frameSize = opts?.frameSize ?? 1024
+  let hopSize = opts?.hopSize ?? (frameSize >> 2)
+  let delta = opts?.delta ?? (frameSize >> 2)
   let win = hannWindow(frameSize)
   let synHop = hopSize
   let anaHop = hopSize / factor
@@ -94,7 +98,7 @@ function wsolaStream(opts) {
         let searchS = Math.max(0, nomPos - delta)
         let searchE = Math.min(inLen - frameSize, nomPos + delta)
         if (searchE < searchS) break
-        let overlap = Math.min(frameSize, outBuf.length - sPos)
+        let overlap = overlapLength(frameSize, synHop, sPos, outBuf.length)
         let bestCorr = -Infinity, bestS = searchS
         for (let s = searchS; s <= searchE; s++) {
           let corr = 0

@@ -12,12 +12,12 @@ import { clamp, normalize, writer } from './util.js'
 
 const PI2 = Math.PI * 2
 
-function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
-  if (pos + maxP * 2 > end) return { period: 0, score: 0 }
+function detectPeriodRange(data, pos, minLag, maxLag, prevPeriod) {
+  if (minLag > maxLag) return { period: 0, score: 0 }
 
-  let corr = new Float64Array(maxP + 1)
-  let n = maxP
-  for (let lag = minP; lag <= maxP; lag++) {
+  let corr = new Float64Array(maxLag + 2)
+  let n = maxLag
+  for (let lag = minLag; lag <= maxLag; lag++) {
     let sum = 0, e1 = 0, e2 = 0
     for (let i = 0; i < n; i++) {
       let a = data[pos + i], b = data[pos + i + lag]
@@ -32,8 +32,7 @@ function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
   let best = 0
   let bestScore = 0
   let bestMetric = -Infinity
-
-  for (let lag = minP + 1; lag < maxP; lag++) {
+  for (let lag = minLag + 1; lag < maxLag; lag++) {
     if (corr[lag] < 0.3 || corr[lag] < corr[lag - 1] || corr[lag] < corr[lag + 1]) continue
 
     let score = corr[lag]
@@ -41,7 +40,7 @@ function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
     if (prevPeriod > 0) metric += 0.18 * Math.max(-1, 1 - Math.abs(Math.log(lag / prevPeriod)))
 
     let doubled = lag * 2
-    if (doubled < maxP && corr[doubled] >= score * 0.88 && corr[doubled] >= corr[doubled - 1] && corr[doubled] >= corr[doubled + 1]) {
+    if (doubled < maxLag && corr[doubled] >= score * 0.88 && corr[doubled] >= corr[doubled - 1] && corr[doubled] >= corr[doubled + 1]) {
       let doubledMetric = corr[doubled]
       if (prevPeriod > 0) doubledMetric += 0.18 * Math.max(-1, 1 - Math.abs(Math.log(doubled / prevPeriod)))
       if (doubledMetric > metric) {
@@ -60,7 +59,7 @@ function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
 
   if (!best) {
     let bestVal = -Infinity
-    for (let lag = minP; lag <= maxP; lag++) {
+    for (let lag = minLag; lag <= maxLag; lag++) {
       if (corr[lag] > bestVal) {
         bestVal = corr[lag]
         best = lag
@@ -72,7 +71,7 @@ function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
   if (bestScore <= 0.35 || !best) return { period: 0, score: Math.max(0, bestScore) }
 
   let period = best
-  if (best > minP && best < maxP) {
+  if (best > minLag && best < maxLag) {
     let ym1 = corr[best - 1]
     let y0 = corr[best]
     let yp1 = corr[best + 1]
@@ -81,6 +80,47 @@ function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
   }
 
   return { period, score: bestScore }
+}
+
+function reuseContourSample(cache, absCenter, hop, state) {
+  if (!cache?.positions?.length) return null
+
+  let positions = cache.positions
+  let idx = state?.index || 0
+  while (idx + 1 < positions.length && positions[idx + 1] <= absCenter) idx++
+  if (state) state.index = idx
+
+  let best = -1
+  let bestDist = Infinity
+  let start = Math.max(0, idx - 1)
+  let end = Math.min(positions.length - 1, idx + 1)
+  for (let i = start; i <= end; i++) {
+    let dist = Math.abs(positions[i] - absCenter)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+    }
+  }
+
+  if (best < 0 || bestDist > hop * 0.45) return null
+  return {
+    period: cache.periods[best],
+    score: cache.scores[best],
+    voiced: cache.voiced[best],
+  }
+}
+
+function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
+  if (pos + maxP * 2 > end) return { period: 0, score: 0 }
+
+  if (prevPeriod > 0) {
+    let localMin = clamp(Math.floor(prevPeriod * 0.78), minP, maxP)
+    let localMax = clamp(Math.ceil(prevPeriod * 1.28), minP, maxP)
+    let local = detectPeriodRange(data, pos, localMin, localMax, prevPeriod)
+    if (local.score >= 0.58) return local
+  }
+
+  return detectPeriodRange(data, pos, minP, maxP, prevPeriod)
 }
 
 function peakNear(data, center, radius) {
@@ -150,27 +190,40 @@ function smoothPeriods(periods, voiced, defP) {
   return out
 }
 
-function pitchContour(data, minP, maxP, defP) {
+function pitchContour(data, minP, maxP, defP, opts = {}) {
   let start = maxP * 2
   let end = data.length - maxP * 2
   if (end <= start) return null
 
-  let hop = Math.max(8, Math.floor(minP / 2))
+  let hop = opts.pitchHop ?? Math.max(12, Math.floor(minP * 0.75))
   let periods = []
   let scores = []
   let voiced = []
+  let positions = []
   let prevPeriod = defP
+  let cacheState = { index: 0 }
+  let segmentOffset = opts.segmentOffset || 0
 
   for (let center = start; center <= end; center += hop) {
-    let { period, score } = detectPeriod(data, center - maxP, minP, maxP, data.length, prevPeriod)
-    let isVoiced = score >= 0.42 && period > 0
+    let absCenter = segmentOffset + center
+    let cached = reuseContourSample(opts.contourCache, absCenter, hop, cacheState)
+    let period, score, isVoiced
+    if (cached) {
+      period = cached.period
+      score = cached.score
+      isVoiced = cached.voiced
+    } else {
+      ({ period, score } = detectPeriod(data, center - maxP, minP, maxP, data.length, prevPeriod))
+      isVoiced = score >= 0.42 && period > 0
+    }
     periods.push(isVoiced ? period : prevPeriod)
     scores.push(score)
     voiced.push(isVoiced)
+    positions.push(absCenter)
     if (isVoiced) prevPeriod = period
   }
 
-  return { start, hop, periods: smoothPeriods(periods, voiced, defP), scores, voiced }
+  return { start, hop, periods: smoothPeriods(periods, voiced, defP), scores, voiced, positions }
 }
 
 function periodAt(contour, pos) {
@@ -339,9 +392,9 @@ function render(data, outLen, factor, markPos, periods, voiced, minP, maxP) {
   return { out, norm }
 }
 
-function psolaBatch(data, opts) {
+function psolaBatchCore(data, opts) {
   let factor = opts?.factor ?? 1
-  if (factor === 1) return new Float32Array(data)
+  if (factor === 1) return { out: new Float32Array(data), contour: null }
 
   let sr = opts?.sampleRate || 44100
   let minP = Math.floor(sr / (opts?.maxFreq || 500))
@@ -350,20 +403,24 @@ function psolaBatch(data, opts) {
 
   let n = data.length
   let outLen = Math.round(n * factor)
-  if (n < maxP * 6) return wsola(data, { factor })
+  if (n < maxP * 6) return { out: wsola(data, { factor }), contour: null }
 
-  let contour = pitchContour(data, minP, maxP, defP)
-  if (!contour) return wsola(data, { factor })
+  let contour = pitchContour(data, minP, maxP, defP, {
+    pitchHop: opts?.pitchHop,
+    contourCache: opts?.contourCache,
+    segmentOffset: opts?.segmentOffset || 0,
+  })
+  if (!contour) return { out: wsola(data, { factor }), contour: null }
 
   let { markPos, periods, voiced } = marks(data, contour, minP, maxP)
-  if (markPos.length < 4) return wsola(data, { factor })
+  if (markPos.length < 4) return { out: wsola(data, { factor }), contour }
 
   let voicedCount = 0
   for (let i = 0; i < voiced.length; i++) if (voiced[i]) voicedCount++
-  if (voicedCount < Math.max(4, voiced.length * 0.2)) return wsola(data, { factor })
+  if (voicedCount < Math.max(4, voiced.length * 0.2)) return { out: wsola(data, { factor }), contour }
 
   let { out, norm } = render(data, outLen, factor, markPos, periods, voiced, minP, maxP)
-  if (norm.every((value) => value <= 1e-8)) return wsola(data, { factor })
+  if (norm.every((value) => value <= 1e-8)) return { out: wsola(data, { factor }), contour }
 
   normalize(out, norm)
 
@@ -376,7 +433,11 @@ function psolaBatch(data, opts) {
     }
   }
 
-  return out
+  return { out, contour }
+}
+
+function psolaBatch(data, opts) {
+  return psolaBatchCore(data, opts).out
 }
 
 function psolaStream(opts) {
@@ -389,10 +450,13 @@ function psolaStream(opts) {
   let segLen = Math.max(maxP * 12, 8192)
   let advance = Math.max(maxP * 8, 4096)
   let outOlap = Math.round((segLen - advance) * factor)
+  let pitchHop = Math.max(12, Math.floor((Math.floor(sr / (opts?.maxFreq || 500))) * 0.75))
 
   let inBuf = new Float32Array(segLen * 2)
   let inLen = 0
   let tail = null
+  let streamOffset = 0
+  let contourCache = null
 
   function concat(parts) {
     let n = 0
@@ -436,9 +500,12 @@ function psolaStream(opts) {
       while (inLen >= segLen) {
         let seg = new Float32Array(segLen)
         seg.set(inBuf.subarray(0, segLen))
-        blend(psolaBatch(seg, batchOpts), results)
+        let { out, contour } = psolaBatchCore(seg, { ...batchOpts, pitchHop, contourCache, segmentOffset: streamOffset })
+        blend(out, results)
+        contourCache = contour
         inBuf.copyWithin(0, advance, inLen)
         inLen -= advance
+        streamOffset += advance
       }
       return concat(results)
     },
@@ -447,7 +514,7 @@ function psolaStream(opts) {
       if (inLen > 0) {
         let seg = new Float32Array(inLen)
         seg.set(inBuf.subarray(0, inLen))
-        let out = psolaBatch(seg, batchOpts)
+        let { out } = psolaBatchCore(seg, { ...batchOpts, pitchHop, contourCache, segmentOffset: streamOffset })
         if (tail) {
           let xLen = Math.min(tail.length, out.length, outOlap)
           let xf = new Float32Array(xLen)
@@ -465,6 +532,7 @@ function psolaStream(opts) {
         results.push(tail)
       }
       tail = null
+      contourCache = null
       return concat(results)
     }
   }

@@ -26,6 +26,17 @@ function scratch(N, half) {
   return { f: new Float64Array(N), mag: new Float64Array(half + 1), phase: new Float64Array(half + 1), r2: new Float64Array(half + 1), i2: new Float64Array(half + 1) }
 }
 
+// Steady-state win² sum — floor prevents amplification at OLA boundaries
+function normFloor(win, hop) {
+  let N = win.length, min = Infinity
+  for (let i = 0; i < hop; i++) {
+    let s = 0
+    for (let j = i; j < N; j += hop) s += win[j] * win[j]
+    if (s > 0 && s < min) min = s
+  }
+  return min === Infinity ? 0 : min
+}
+
 export function stftBatch(data, process, opts) {
   let factor = opts?.factor ?? 1
   let N = opts?.frameSize || 2048
@@ -43,7 +54,7 @@ export function stftBatch(data, process, opts) {
   let sc = scratch(N, half)
   let aPos = 0, sPos = 0
 
-  while (sPos + N <= outLen && Math.round(aPos) + N <= data.length) {
+  while (sPos + N <= outLen) {
     let sf = frame(data, Math.round(aPos), win, half, process, state, ctx, sc)
     for (let i = 0; i < N && sPos + i < outLen; i++) {
       out[sPos + i] += sf[i] * win[i]
@@ -53,7 +64,11 @@ export function stftBatch(data, process, opts) {
     sPos += synHop
   }
 
-  normalize(out, norm)
+  let nf = normFloor(win, synHop)
+  for (let i = 0; i < outLen; i++) {
+    let n = Math.max(norm[i], nf)
+    if (n > 1e-8) out[i] /= n
+  }
   return out
 }
 
@@ -74,6 +89,8 @@ export function stftStream(process, opts) {
   let aPos = 0, sPos = 0, oRead = 0
   let state = {}
   let sc = scratch(N, half)
+  let flushed = false
+  let nf = normFloor(win, synHop)
 
   function appendIn(chunk) {
     let need = inLen + chunk.length
@@ -119,7 +136,8 @@ export function stftStream(process, opts) {
     let out = new Float32Array(len)
     for (let i = 0; i < len; i++) {
       let j = oRead + i
-      out[i] = normBuf[j] > 1e-8 ? outBuf[j] / normBuf[j] : 0
+      let n = Math.max(normBuf[j], nf)
+      out[i] = n > 1e-8 ? outBuf[j] / n : 0
     }
     oRead += len
     if (oRead > N * 8) {
@@ -141,6 +159,7 @@ export function stftStream(process, opts) {
       return take(Math.max(0, sPos - N + synHop))
     },
     flush() {
+      if (!flushed) { appendIn(new Float32Array(N)); flushed = true }
       run()
       return take(sPos)
     }
