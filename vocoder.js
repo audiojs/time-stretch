@@ -1,5 +1,5 @@
-import { stftBatch, stftStream, writer } from './stft.js'
-import { wrapPhase } from './util.js'
+import { stftBatch, stftStream } from './stft.js'
+import { wrapPhase, writer } from './util.js'
 
 function advance(mag, phase, state, ctx) {
   let { half, anaHop, synHop, freqPerBin } = ctx

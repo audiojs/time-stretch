@@ -22,6 +22,7 @@ export interface TransientOpts extends StftOpts {
 export interface PaulstretchOpts {
   factor?: number
   frameSize?: number
+  seed?: number
 }
 
 export interface PsolaOpts {
@@ -35,7 +36,11 @@ export interface PitchShiftOpts {
   semitones?: number
   ratio?: number
   formant?: boolean
+  content?: 'music' | 'voice' | 'speech' | 'tonal'
   method?: StretchFn
+  sampleRate?: number
+  minFreq?: number
+  maxFreq?: number
   frameSize?: number
   hopSize?: number
 }
@@ -52,6 +57,7 @@ export interface SmsOpts extends StretchOpts {
   maxTracks?: number
   minMag?: number
   freqDev?: number
+  residualMix?: number
 }
 
 type StretchFn = {

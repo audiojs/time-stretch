@@ -1,5 +1,6 @@
-import phaseLock from './phase-lock.js'
-import wsola from './wsola.js'
+import transient from './transient.js'
+import psola from './psola.js'
+import sms from './sms.js'
 import formantShift from './formant-shift.js'
 import { resample } from './util.js'
 
@@ -18,7 +19,7 @@ export default function pitchShift(data, opts) {
   let ratio = opts?.ratio ?? (semitones ? Math.pow(2, semitones / 12) : 1)
   if (ratio === 1) return new Float32Array(data)
 
-  let method = opts?.method || phaseLock
+  let method = opts?.method || defaultMethod(opts)
 
   // time-stretch by pitch ratio, then resample to original length
   // raising pitch (ratio>1) → stretch longer → resample shorter = pitch up
@@ -26,4 +27,16 @@ export default function pitchShift(data, opts) {
 
   // resample back to original length
   return resample(stretched, data.length)
+}
+
+function defaultMethod(opts) {
+  switch (opts?.content) {
+    case 'voice':
+    case 'speech':
+      return psola
+    case 'tonal':
+      return sms
+    default:
+      return transient
+  }
 }

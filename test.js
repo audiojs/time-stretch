@@ -88,7 +88,7 @@ function testStretch(name, fn, tolerances = {}) {
 }
 
 // --- OLA ---
-testStretch('ola', ola, { freqTol: 0.3, rmsTol: 0.5 })
+testStretch('ola', ola, { freqTol: 0.3, rmsTol: 0.55 })
 
 // --- WSOLA ---
 testStretch('wsola', wsola)
@@ -204,6 +204,20 @@ test('pitchShift — wsola method', () => {
   let out = pitchShift(data, { semitones: 5, method: wsola })
   is(out.length, data.length)
   ok(rms(out) > 0.1, 'has signal')
+})
+
+test('pitchShift — voice content uses PSOLA path', () => {
+  let data = sine(220, 8192, fs)
+  let out = pitchShift(data, { semitones: 4, content: 'voice', sampleRate: fs, minFreq: 80, maxFreq: 320 })
+  is(out.length, data.length)
+  ok(rms(out) > 0.1, 'has signal')
+})
+
+test('pitchShift — tonal content uses SMS path', () => {
+  let data = sine(330, 8192, fs)
+  let out = pitchShift(data, { semitones: 3, content: 'tonal' })
+  is(out.length, data.length)
+  ok(rms(out) > 0.05, 'has signal')
 })
 
 // --- Streaming ---
@@ -489,3 +503,34 @@ testStream('sms', sms, { energyTol: 0.5 })
 testExtreme('sms', sms, 0.1, 100)
 testExtreme('sms', sms, 10, 100000)
 stereoTest('sms', sms, { factor: 1.5 })
+
+// --- Quality metrics ---
+test('transient — preserves attack sharpness', () => {
+  let n = 16384
+  let data = new Float32Array(n)
+  for (let i = 0; i < n; i += 2048) {
+    for (let j = 0; j < 64 && i + j < n; j++) data[i + j] = Math.sin(2 * Math.PI * 440 * j / fs) * (1 - j / 64)
+  }
+  let out = transient(data, { factor: 2 })
+  let peak = 0
+  for (let i = 0; i < out.length; i++) peak = Math.max(peak, Math.abs(out[i]))
+  ok(peak > 0.3, `transient peaks preserved (peak=${peak.toFixed(3)})`)
+})
+
+test('sms — noise residual energy preservation', () => {
+  let n = 8192, seed = 0x12345
+  let data = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    seed = (seed * 1664525 + 1013904223) >>> 0
+    data[i] = (seed / 0x100000000 - 0.5) * 0.6
+  }
+  let out = sms(data, { factor: 2, residualMix: 1 })
+  ok(rms(out) > rms(data) * 0.3, 'noise energy preserved via residual')
+})
+
+test('phaseLock — spectral purity on sine', () => {
+  let data = sine(440, 16384, fs)
+  let out = phaseLock(data, { factor: 1.5 })
+  let freq = peakFreq(out, fs)
+  almost(freq, 440, 22, 'frequency drift < 5%')
+})

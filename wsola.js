@@ -28,7 +28,7 @@ export default function wsola(data, opts) {
     let nomPos = Math.round(anaPos)
     let readPos = nomPos
 
-    if (synPos > 0) {
+    if (synPos > 0 && delta > 0) {
       let searchStart = Math.max(0, nomPos - delta)
       let searchEnd = Math.min(inLen - frameSize, nomPos + delta)
       if (searchEnd < searchStart) break
@@ -90,7 +90,7 @@ function wsolaStream(opts) {
       let nomPos = Math.round(aPos)
       let readPos = nomPos
 
-      if (sPos > 0) {
+      if (sPos > 0 && delta > 0) {
         let searchS = Math.max(0, nomPos - delta)
         let searchE = Math.min(inLen - frameSize, nomPos + delta)
         if (searchE < searchS) break

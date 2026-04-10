@@ -1,11 +1,5 @@
 import { fft, ifft } from 'fourier-transform'
-import { hannWindow, PI2 } from './util.js'
-
-// Wrap { write, flush } stream object into simple writer function
-// write(chunk) → process, write() or write(null) → flush
-export function writer(s) {
-  return (chunk) => chunk ? s.write(chunk) : s.flush()
-}
+import { hannWindow, normalize, PI2 } from './util.js'
 
 function frame(data, pos, win, half, process, state, ctx, sc) {
   let N = win.length
@@ -59,7 +53,7 @@ export function stftBatch(data, process, opts) {
     sPos += synHop
   }
 
-  for (let i = 0; i < outLen; i++) if (norm[i] > 1e-8) out[i] /= norm[i]
+  normalize(out, norm)
   return out
 }
 

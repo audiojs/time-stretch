@@ -8,12 +8,9 @@
  */
 
 import wsola from './wsola.js'
+import { clamp, normalize, writer } from './util.js'
 
 const PI2 = Math.PI * 2
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value))
-}
 
 function detectPeriod(data, pos, minP, maxP, end, prevPeriod = 0) {
   if (pos + maxP * 2 > end) return { period: 0, score: 0 }
@@ -190,6 +187,31 @@ function voicedAt(contour, pos) {
   return contour.voiced[i] && contour.scores[i] >= 0.4
 }
 
+function voicedWeight(contour, index) {
+  if (!contour.voiced[index]) return 0
+
+  let sum = 0
+  let count = 0
+  for (let k = Math.max(0, index - 1); k <= Math.min(contour.scores.length - 1, index + 1); k++) {
+    if (!contour.voiced[k]) continue
+    sum += clamp((contour.scores[k] - 0.34) / 0.18, 0, 1)
+    count++
+  }
+
+  return count ? sum / count : 0
+}
+
+function voicedWeightAt(contour, pos) {
+  let x = (pos - contour.start) / contour.hop
+  if (x <= 0) return voicedWeight(contour, 0)
+  if (x >= contour.scores.length - 1) return voicedWeight(contour, contour.scores.length - 1)
+  let i = Math.floor(x)
+  let frac = x - i
+  let a = voicedWeight(contour, i)
+  let b = voicedWeight(contour, i + 1)
+  return a * (1 - frac) + b * frac
+}
+
 function findAnchor(contour) {
   for (let i = 1; i < contour.voiced.length - 1; i++) {
     if (contour.voiced[i - 1] && contour.voiced[i] && contour.voiced[i + 1]) return i
@@ -317,11 +339,7 @@ function render(data, outLen, factor, markPos, periods, voiced, minP, maxP) {
   return { out, norm }
 }
 
-export default function psola(data, opts) {
-  if (!(data instanceof Float32Array)) {
-    return wsola(data)
-  }
-
+function psolaBatch(data, opts) {
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
@@ -347,6 +365,112 @@ export default function psola(data, opts) {
   let { out, norm } = render(data, outLen, factor, markPos, periods, voiced, minP, maxP)
   if (norm.every((value) => value <= 1e-8)) return wsola(data, { factor })
 
-  for (let i = 0; i < outLen; i++) if (norm[i] > 1e-8) out[i] /= norm[i]
+  normalize(out, norm)
+
+  // Blend WSOLA in weakly voiced regions where pitch-synchronous grains sound brittle
+  if (voicedCount < voiced.length * 0.95) {
+    let noise = wsola(data, { factor })
+    for (let i = 0; i < outLen; i++) {
+      let weight = voicedWeightAt(contour, i / factor)
+      out[i] = out[i] * weight + noise[i] * (1 - weight)
+    }
+  }
+
   return out
+}
+
+function psolaStream(opts) {
+  let factor = opts?.factor ?? 1
+  let sr = opts?.sampleRate || 44100
+  let maxP = Math.ceil(sr / (opts?.minFreq || 80))
+  let batchOpts = { factor, sampleRate: sr, minFreq: opts?.minFreq, maxFreq: opts?.maxFreq }
+
+  // Segment sizing: enough for pitch contour + marks + rendering
+  let segLen = Math.max(maxP * 12, 8192)
+  let advance = Math.max(maxP * 8, 4096)
+  let outOlap = Math.round((segLen - advance) * factor)
+
+  let inBuf = new Float32Array(segLen * 2)
+  let inLen = 0
+  let tail = null
+
+  function concat(parts) {
+    let n = 0
+    for (let p of parts) n += p.length
+    if (!n) return new Float32Array(0)
+    let out = new Float32Array(n)
+    let off = 0
+    for (let p of parts) { out.set(p, off); off += p.length }
+    return out
+  }
+
+  function blend(out, results) {
+    if (tail) {
+      let xLen = Math.min(tail.length, out.length, outOlap)
+      let xf = new Float32Array(xLen)
+      for (let i = 0; i < xLen; i++) {
+        let w = (i + 0.5) / xLen
+        xf[i] = tail[i] * (1 - w) + out[i] * w
+      }
+      results.push(xf)
+      let emitEnd = out.length - outOlap
+      if (emitEnd > xLen) results.push(new Float32Array(out.subarray(xLen, emitEnd)))
+      tail = emitEnd < out.length ? new Float32Array(out.subarray(Math.max(xLen, emitEnd))) : null
+    } else {
+      let emitEnd = out.length - outOlap
+      if (emitEnd > 0) results.push(new Float32Array(out.subarray(0, emitEnd)))
+      tail = new Float32Array(out.subarray(Math.max(0, emitEnd)))
+    }
+  }
+
+  return {
+    write(chunk) {
+      if (inLen + chunk.length > inBuf.length) {
+        let nb = new Float32Array(Math.max((inLen + chunk.length) * 2, inBuf.length * 2))
+        nb.set(inBuf.subarray(0, inLen))
+        inBuf = nb
+      }
+      inBuf.set(chunk, inLen)
+      inLen += chunk.length
+      let results = []
+      while (inLen >= segLen) {
+        let seg = new Float32Array(segLen)
+        seg.set(inBuf.subarray(0, segLen))
+        blend(psolaBatch(seg, batchOpts), results)
+        inBuf.copyWithin(0, advance, inLen)
+        inLen -= advance
+      }
+      return concat(results)
+    },
+    flush() {
+      let results = []
+      if (inLen > 0) {
+        let seg = new Float32Array(inLen)
+        seg.set(inBuf.subarray(0, inLen))
+        let out = psolaBatch(seg, batchOpts)
+        if (tail) {
+          let xLen = Math.min(tail.length, out.length, outOlap)
+          let xf = new Float32Array(xLen)
+          for (let i = 0; i < xLen; i++) {
+            let w = (i + 0.5) / xLen
+            xf[i] = tail[i] * (1 - w) + out[i] * w
+          }
+          results.push(xf)
+          if (out.length > xLen) results.push(new Float32Array(out.subarray(xLen)))
+        } else {
+          results.push(out)
+        }
+        inLen = 0
+      } else if (tail) {
+        results.push(tail)
+      }
+      tail = null
+      return concat(results)
+    }
+  }
+}
+
+export default function psola(data, opts) {
+  if (!(data instanceof Float32Array)) return writer(psolaStream(data))
+  return psolaBatch(data, opts)
 }

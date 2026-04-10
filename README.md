@@ -358,10 +358,11 @@ sms(data, { factor: 3, frameSize: 4096 })
 | `maxTracks` | `60` | Max simultaneous sinusoidal tracks |
 | `minMag` | `1e-4` | Peak detection threshold (linear) |
 | `freqDev` | `3` | Max frequency deviation in bins for track continuation |
+| `residualMix` | `1` | Amount of stochastic residual energy blended back into the sinusoidal model |
 
 **Use when**: harmonic/tonal content (instruments, chords, vocals), cases where phaseLock introduces smearing.<br>
-**Not for**: noise-heavy or transient-heavy material — only the sinusoidal component is preserved. Drums and breath sounds are lost. Use [transient](#transient) for percussive content.<br>
-**Note**: ~10% amplitude loss from peak-only reconstruction (mainlobe energy in neighbor bins is not captured). Polyphonic signals lose less (~3%).
+**Not for**: fully noise-dominated material — the sinusoidal model is still the anchor, even though a residual path now preserves more breath/noise/transient content.<br>
+**Note**: default `residualMix=1` adds shaped stochastic residual synthesis on top of the sinusoidal model, turning the implementation into a practical deterministic-plus-stochastic hybrid instead of peak-only reconstruction.
 
 
 ## Pitch shift
@@ -374,7 +375,7 @@ Pitch shifting via time-stretch + resample. Stretches by the pitch ratio (making
                     time-stretch              resample
 Input ──→ pitch up (ratio 2) ──→ 2× longer ──→ squeeze to original length
           ↑                                      ↑
-          phaseLock by default                   linear interpolation
+          transient by default                   linear interpolation
           (or wsola via method param)
 ```
 
@@ -387,6 +388,8 @@ pitchShift(data, { semitones: 7 })           // perfect fifth up
 pitchShift(data, { semitones: -12 })         // octave down
 pitchShift(data, { ratio: 1.5 })             // direct ratio
 pitchShift(data, { semitones: 5, method: wsola })  // use wsola backend
+pitchShift(data, { semitones: 5, content: 'voice', sampleRate: 48000 })  // prefer psola backend
+pitchShift(data, { semitones: 5, content: 'tonal' })  // prefer sms backend
 pitchShift(data, { semitones: 5, formant: true })   // preserve formants (voice)
 ```
 
@@ -394,13 +397,17 @@ pitchShift(data, { semitones: 5, formant: true })   // preserve formants (voice)
 |---|---|---|
 | `semitones` | `0` | Pitch shift in semitones |
 | `ratio` | from semitones | Direct frequency ratio |
-| `method` | `phaseLock` | Stretch algorithm (`phaseLock`, `wsola`, etc.) |
+| `content` | `music` | Default backend choice (`music` → `transient`, `voice`/`speech` → `psola`, `tonal` → `sms`) |
+| `method` | content-dependent | Stretch algorithm override (`transient`, `psola`, `sms`, `wsola`, etc.) |
+| `sampleRate` | `44100` | Used by voice-oriented methods like `psola` |
+| `minFreq` | backend default | Passed to `psola` when used |
+| `maxFreq` | backend default | Passed to `psola` when used |
 | `frameSize` | `2048` | Passed to stretch method |
 | `hopSize` | `frameSize/4` | Passed to stretch method |
 | `formant` | `false` | Use formant-preserving mode (delegates to `formantShift`) |
 
 **Use when**: pitch correction, harmonizing, creative effects.<br>
-**Not for**: large shifts on voice without `formant: true` — will sound chipmunk/giant.
+**Not for**: large shifts on voice without `formant: true` — will sound chipmunk/giant. For best defaults, set `content` so the stretcher matches the material.
 
 
 ### `formantShift`

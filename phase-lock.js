@@ -1,5 +1,5 @@
-import { stftBatch, stftStream, writer } from './stft.js'
-import { wrapPhase, lockPhase } from './util.js'
+import { stftBatch, stftStream } from './stft.js'
+import { wrapPhase, lockPhase, writer } from './util.js'
 
 function lock(mag, phase, state, ctx) {
   let { half, anaHop, synHop, freqPerBin } = ctx
