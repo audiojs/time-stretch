@@ -2,12 +2,6 @@
 
 Time stretching and pitch shifting.
 
-[Time domain](#time-domain): [ola](#ola) · [wsola](#wsola) · [psola](#psola)<br>
-[Frequency domain](#frequency-domain): [vocoder](#vocoder) · [phaseLock](#phaselock) · [transient](#transient) · [paulstretch](#paulstretch) <br>
-[Sinusoidal](#sinusoidal): [sms](#sms) <br>
-[Pitch shift](#pitch-shift): [pitchShift](#pitchshift) · [formantShift](#formantshift) <br>
-[Streaming](#streaming) · [Web Audio](#browser--web-audio) · [Performance](#performance)<br>
-
 ## Install
 
 ```
@@ -26,38 +20,9 @@ write(block2)
 write()                                                 // → remaining samples
 ```
 
-> For audio-domain filters see [audio-filter](https://github.com/audiojs/audio-filter). For FFT see [fourier-transform](https://github.com/audiojs/fourier-transform).
+## Overview
 
-
-## Quick start
-
-Not sure which algorithm to pick? Start here:
-
-| You have | Start with | Why |
-|---|---|---|
-| Speech, podcasts | `wsola(data, { factor })` | Low CPU, real-time friendly, forgiving on voice |
-| Full mixes, loops, drums | `transient(data, { factor })` | Best general-purpose pick for mixed material |
-| Mostly tonal / harmonic content | `phaseLock(data, { factor })` | Cleaner than plain vocoder |
-| Vocal pitch shift | `pitchShift(data, { semitones, content: 'voice', formant: true })` | Formant-preserving voice mode |
-| Extreme ambient / sound design | `paulstretch(data, { factor: 8 })` | Designed for large ratios |
-
-```js
-import { wsola, transient, pitchShift, paulstretch } from 'time-stretch'
-
-let podcast = wsola(speech, { factor: 1.5 })
-let song    = transient(music, { factor: 1.25 })
-let vocal   = pitchShift(voice, { semitones: 3, content: 'voice', formant: true })
-let drone   = paulstretch(pad, { factor: 8 })
-```
-
-The library exposes raw algorithm primitives — no magic wrapper that picks for you. This lets you tune when you need to.
-
-
-## Algorithm overview
-
-`factor > 1` = slower, `factor < 1` = faster. Every algorithm splits input into overlapping frames, repositions them in time, and crossfades. The differences are in *how* frames are aligned and modified.
-
-| | Domain | Quality | CPU | Best for |
+| | Domain | Quality | CPU cost | Best for |
 |---|---|---|---|---|
 | [ola](#ola) | time | ★ | lowest | prototyping only |
 | [wsola](#wsola) | time | ★★★ | low | speech, real-time |
@@ -308,7 +273,10 @@ formantShift(data, { ratio: 1.5 })
 **Not for:** Extreme shifts (>1 octave) — quality degrades. For instruments, regular `pitchShift` may be cleaner.
 
 
-## Streaming
+
+## Integration
+
+### Streaming
 
 All algorithms support block-by-block streaming. Call with options only (no data) to get a writer:
 
@@ -338,9 +306,6 @@ sms({ factor, maxTracks, minMag, freqDev })
 formantShift({ semitones, ratio, envelopeWidth })
 ```
 
-
-## Integration
-
 ### One-shot buffer
 
 ```js
@@ -364,25 +329,6 @@ let wR = phaseLock({ factor: 2 })
 ```
 
 
-## Performance
-
-Benchmarked on a 5-second mono 44.1kHz signal (`node scripts/bench.js`). Always benchmark on your target hardware — frame size, hop size, and source material all affect results.
-
-| Algorithm | Batch ×realtime | Streaming ×realtime | Notes |
-|---|---|---|---|
-| `ola` | `1816×` | `1579×` | baseline only |
-| `wsola` | `10.3×` | `10.4×` | low CPU, voice / playback |
-| `vocoder` | `81.5×` | `78.2×` | educational baseline |
-| `phaseLock` | `76.3×` | `76.2×` | tonal music default |
-| `transient` | `65.1×` | `64.6×` | mixed music default |
-| `paulstretch` (`8×`) | `35.7×` | `35.4×` | creative large-ratio |
-| `psola` | `22.1×` | `15.4×` | speech, heavier than it looks |
-| `sms` | — | — | heavier than phaseLock; not benched here |
-
-- Lower `frameSize` reduces latency but increases artifacts.
-- Tree-shakeable (`"sideEffects": false`) with subpath imports like `time-stretch/transient`.
-- Dependencies: `fourier-transform` and `window-function`.
-
 
 ## Research & comparison
 
@@ -395,15 +341,9 @@ Benchmarked on a 5-second mono 44.1kHz signal (`node scripts/bench.js`). Always 
 `demo.html` for a lightweight browser listening matrix. `scripts/compare.js` for deeper analysis.
 
 
-## Scope
-
-- Pure JavaScript. No WASM build pipeline yet.
-- Public API is algorithm-level: mono `Float32Array → Float32Array`, plus streaming writers.
-- Internals like `stft.js` are implementation details, not a stable public API.
-
-
 ## See also
 
+* [pitch-shift](https://github.com/audiojs/pitch-shift) — related pitch shifting algos
 * [fourier-transform](https://github.com/audiojs/fourier-transform) — FFT
 * [window-function](https://github.com/audiojs/window-function) — Hann, Hamming, Blackman, etc.
 * [audio-filter](https://github.com/audiojs/audio-filter) — audio filters
@@ -418,7 +358,6 @@ Benchmarked on a 5-second mono 44.1kHz signal (`node scripts/bench.js`). Always 
 * Nasca, P. (2006). "PaulStretch — extreme time stretching." _paulnasca.com_.
 * Moulines, E. & Charpentier, F. (1990). "Pitch-synchronous waveform processing techniques for text-to-speech synthesis using diphones." _Speech Communication_, 9(5-6).
 * Driedger, J. & Müller, M. (2016). "A review of time-scale modification of music signals." _Applied Sciences_, 6(2).
-
 
 
 <div align="center">
