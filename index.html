@@ -160,6 +160,7 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
   <button class="source-btn" data-src="chord">Chord</button>
   <button class="source-btn" data-src="perc">Percussion</button>
   <button class="source-btn" data-src="voice">Voice (Lena)</button>
+  <button class="source-btn" data-src="sweep">Sweep 100→4k (log)</button>
   <span id="status"></span>
 </div>
 
@@ -183,8 +184,8 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
 <script type="importmap">
 {
   "imports": {
-    "fourier-transform": "./node_modules/fourier-transform/index.js",
-    "window-function": "./node_modules/window-function/index.js",
+    "fourier-transform": "https://esm.sh/fourier-transform",
+    "window-function": "https://esm.sh/window-function",
     "time-stretch": "./index.js"
   }
 }
@@ -249,8 +250,25 @@ function genPerc(dur = 2) {
   return d
 }
 
+function genSweep(dur = 2) {
+  let n = Math.round(dur * SR), d = new Float32Array(n)
+  let f0 = 100, f1 = 4000
+  for (let i = 0; i < n; i++) {
+    let t = i / SR
+    // Logarithmic sweep: f(t) = f0 * (f1/f0)^(t/dur)
+    let f = f0 * Math.pow(f1 / f0, t / dur)
+    // Phase = integral of f(t) dt = f0 * dur * ((f1/f0)^(t/dur) - 1) / ln(f1/f0)
+    let phase = f0 * dur * (Math.pow(f1 / f0, t / dur) - 1) / Math.log(f1 / f0)
+    d[i] = 0.7 * Math.sin(PI2 * phase / dur)
+  }
+  // gentle fade
+  let fade = Math.min(500, n >> 2)
+  for (let i = 0; i < fade; i++) { let g = i / fade; d[i] *= g; d[n - 1 - i] *= g }
+  return d
+}
+
 async function loadLena() {
-  let resp = await fetch('./node_modules/audio-lena/lena.mp3')
+    let resp = await fetch('https://cdn.jsdelivr.net/npm/audio-lena/lena.mp3')
   let buf = await resp.arrayBuffer()
   let ctx = new OfflineAudioContext(1, SR * 13, SR)
   let abuf = await ctx.decodeAudioData(buf)
@@ -467,6 +485,7 @@ async function runSource(srcKey) {
   if (srcKey === 'tone') samples = genTone()
   else if (srcKey === 'chord') samples = genChord()
   else if (srcKey === 'perc') samples = genPerc()
+  else if (srcKey === 'sweep') samples = genSweep()
   else samples = await loadLena()
   let runs = []
   updateBench(samples, runs)
