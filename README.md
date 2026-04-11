@@ -336,7 +336,7 @@ let wR = phaseLock({ factor: 2 })
 | `node scripts/bench.js` | throughput and ×realtime numbers for batch and streaming |
 | `node scripts/diagnose.js` | targeted diagnostics for specific algorithm behaviors |
 
-`demo.html` for a lightweight browser listening matrix. `scripts/compare.js` for deeper analysis.
+[Demo](https://audiojs.github.io/time-stretch/) for a lightweight browser listening matrix. `scripts/compare.js` for deeper analysis.
 
 
 ## See also
