@@ -136,6 +136,14 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
 }
 @keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 
+/* github link */
+.github-link{
+  position:fixed;top:20px;right:20px;
+  opacity:0.7;transition:opacity .2s ease;z-index:1000;
+}
+.github-link:hover{opacity:1}
+.github-link svg{width:28px;height:28px;fill:var(--fg)}
+
 /* footer */
 .footer{margin-top:22px;font:400 10px/1.8 var(--mono);color:var(--dim);letter-spacing:0.01em}
 .footer a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line)}
@@ -150,6 +158,10 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
 </style>
 </head>
 <body>
+
+<a href="https://github.com/audiojs/time-stretch" class="github-link" target="_blank" rel="noopener">
+  <svg viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546 1.377-1.333 1.74-1.333 1.74-.889 1.205-.082 1.838-.082 1.838 1.02 1.078 1.02 2.317 0 3.393-.789 1.838-1.925 1.838-1.74 0-1.416-.726-1.416-1.416 0-.716.453-1.332 1.333-1.332.66 0 1.207.548 1.333 1.174.599 0 1.836-1.078 1.836-1.836 0-.316.082-.662.333-1.078 1.78.226 1.74-.667 1.74-1.416 0-5.302-3.438-9.8-8.207-11.387-3.338-.111-.793-.261-.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546 1.377-1.333 1.74-1.333 1.74-.889 1.205-.082 1.838-.082 1.838 1.02 1.078 1.02 2.317 0 3.393-.789 1.838-1.925 1.838-1.74 0-1.416-.726-1.416-1.416 0-.716.453-1.332 1.333-1.332.66 0 1.207.548 1.333 1.174.599 0 1.836-1.078 1.836-1.836 0-.316.082-.662.333-1.078 1.78.226 1.74-.667 1.74-1.416z"/></svg>
+</a>
 
 <h1>time-stretch</h1>
 <p class="subtitle">Time stretching &amp; pitch shifting — 10 algorithms, live in-browser</p>
