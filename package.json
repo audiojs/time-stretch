@@ -1,6 +1,6 @@
 {
   "name": "time-stretch",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "types": "index.d.ts",
   "description": "Time stretching and pitch shifting: OLA, WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch, PSOLA, SMS",
