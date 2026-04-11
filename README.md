@@ -2,8 +2,6 @@
 
 Time stretching and pitch shifting.
 
-## Overview
-
 | | Domain | Quality | CPU cost | Best for |
 |---|---|---|---|---|
 | [ola](#ola) | time | ★ | lowest | prototyping only |
@@ -17,7 +15,7 @@ Time stretching and pitch shifting.
 | [formantShift](#formantshift) | freq | ★★★★ | medium | voice pitch shift |
 
 
-## Install
+## Usage
 
 ```
 npm install time-stretch
