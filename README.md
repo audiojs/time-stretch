@@ -2,7 +2,11 @@
 
 Time stretching and pitch shifting.
 
-[Time domain](#time-domain): [ola](#ola) · [wsola](#wsola) · [psola](#psola) &ensp;|&ensp; [Frequency domain](#frequency-domain): [vocoder](#vocoder) · [phaseLock](#phaselock) · [transient](#transient) · [paulstretch](#paulstretch) &ensp;|&ensp; [Sinusoidal](#sinusoidal): [sms](#sms) &ensp;|&ensp; [Pitch shift](#pitch-shift): [pitchShift](#pitchshift) · [formantShift](#formantshift) &ensp;|&ensp; [Streaming](#streaming) · [Web Audio](#browser--web-audio) · [Performance](#performance)
+[Time domain](#time-domain): [ola](#ola) · [wsola](#wsola) · [psola](#psola)<br>
+[Frequency domain](#frequency-domain): [vocoder](#vocoder) · [phaseLock](#phaselock) · [transient](#transient) · [paulstretch](#paulstretch) <br>
+[Sinusoidal](#sinusoidal): [sms](#sms) <br>
+[Pitch shift](#pitch-shift): [pitchShift](#pitchshift) · [formantShift](#formantshift) <br>
+[Streaming](#streaming) · [Web Audio](#browser--web-audio) · [Performance](#performance)<br>
 
 ## Install
 
