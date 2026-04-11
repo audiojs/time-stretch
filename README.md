@@ -2,6 +2,21 @@
 
 Time stretching and pitch shifting.
 
+## Overview
+
+| | Domain | Quality | CPU cost | Best for |
+|---|---|---|---|---|
+| [ola](#ola) | time | ★ | lowest | prototyping only |
+| [wsola](#wsola) | time | ★★★ | low | speech, real-time |
+| [psola](#psola) | time | ★★★★ | medium | speech / monophonic instruments |
+| [vocoder](#vocoder) | freq | ★★ | medium | educational, simple tonal |
+| [phaseLock](#phaselock) | freq | ★★★★ | medium | general music |
+| [transient](#transient) | freq | ★★★★★ | medium | music with percussion |
+| [paulstretch](#paulstretch) | freq | — | medium | extreme stretch (ambient, drones) |
+| [sms](#sms) | sinusoidal | ★★★★ | high | harmonic / tonal material |
+| [formantShift](#formantshift) | freq | ★★★★ | medium | voice pitch shift |
+
+
 ## Install
 
 ```
@@ -19,21 +34,6 @@ write(block1)
 write(block2)
 write()                                                 // → remaining samples
 ```
-
-## Overview
-
-| | Domain | Quality | CPU cost | Best for |
-|---|---|---|---|---|
-| [ola](#ola) | time | ★ | lowest | prototyping only |
-| [wsola](#wsola) | time | ★★★ | low | speech, real-time |
-| [psola](#psola) | time | ★★★★ | medium | speech / monophonic instruments |
-| [vocoder](#vocoder) | freq | ★★ | medium | educational, simple tonal |
-| [phaseLock](#phaselock) | freq | ★★★★ | medium | general music |
-| [transient](#transient) | freq | ★★★★★ | medium | music with percussion |
-| [paulstretch](#paulstretch) | freq | — | medium | extreme stretch (ambient, drones) |
-| [sms](#sms) | sinusoidal | ★★★★ | high | harmonic / tonal material |
-| [formantShift](#formantshift) | freq | ★★★★ | medium | voice pitch shift |
-
 
 ## Time domain
 
