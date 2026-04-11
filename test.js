@@ -220,6 +220,54 @@ test('pitchShift — tonal content uses SMS path', () => {
   ok(rms(out) > 0.05, 'has signal')
 })
 
+test('pitchShift — invalid ratio throws', () => {
+  let data = sine(440, 8192, fs)
+  let threw = false
+  try {
+    pitchShift(data, { ratio: 0 })
+  } catch (e) {
+    threw = true
+  }
+  ok(threw, 'throws for ratio <= 0')
+})
+
+test('pitchShift — invalid semitones throws', () => {
+  let data = sine(440, 8192, fs)
+  let threw = false
+  try {
+    pitchShift(data, { semitones: Infinity })
+  } catch (e) {
+    threw = true
+  }
+  ok(threw, 'throws for non-finite semitones')
+})
+
+test('pitchShift — onDecision reports fallback route', () => {
+  let data = sine(440, 8192, fs)
+  let decision
+  let out = pitchShift(data, {
+    semitones: 3,
+    onDecision: (d) => { decision = d }
+  })
+  is(out.length, data.length)
+  ok(!!decision, 'decision callback called')
+  is(decision.reason, 'fallback:transient')
+  is(decision.formant, false)
+})
+
+test('pitchShift — onDecision reports explicit method route', () => {
+  let data = sine(440, 8192, fs)
+  let decision
+  let out = pitchShift(data, {
+    semitones: 3,
+    method: wsola,
+    onDecision: (d) => { decision = d }
+  })
+  is(out.length, data.length)
+  ok(!!decision, 'decision callback called')
+  is(decision.reason, 'explicit-method')
+})
+
 // --- Streaming ---
 function testStream(name, fn, streamOpts = {}) {
   let factor = streamOpts.factor ?? 2

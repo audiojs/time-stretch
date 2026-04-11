@@ -1,6 +1,6 @@
 ## Vision
 
-Collection of canonical timeless performant industry-standard time-stretching algorithms, usable for any audio purposes: WAA, worklets, audio etc. Code is compilable via jz to wasm.
+Collection of canonical timeless performant industry-standard time-stretching algorithms, usable for browser audio, Web Audio, worklet-oriented integrations, and general DSP use. Pure JS is the supported path today; a jz → WASM path is a future optimization target once it is documented and shipped.
 
 Comparative quality research: present algorithm results side-by-side on diverse samples (speech, music, percussion, polyphonic, extreme ratios) so users can hear and see the tradeoffs. Educative, not marketing — let the algorithms speak.
 
@@ -115,18 +115,19 @@ Provide the canonical collection of time-stretching and pitch-shifting algorithm
 ### Activities
 - Implement industry-standard TSM algorithms as pure JS functions (Float32Array → Float32Array)
 - Cover the full quality/speed spectrum: OLA → WSOLA → Phase Vocoder → Phase-locked Vocoder → Transient-aware Vocoder → PSOLA → PaulStretch
-- Maintain streaming-compatible API (state in params object, block-by-block processing)
+- Maintain streaming-compatible API (current public form: `fn(opts) -> writer`, block-by-block processing, one writer per stream/channel)
 - Provide pitch-shifting as time-stretch + resample composition
 - Ensure formant preservation option for vocal pitch shifting
 - Ship with sensible defaults for 44.1kHz, scale automatically for other rates
 - Follow audiojs conventions: granular exports, tree-shakeable, zero-config, physical units
-- Compilable to WASM via jz for performance-critical paths
+- Keep implementations friendly to a future jz/WASM compilation path, but do not promise that path publicly until it is documented in-repo
 - Provide comparative quality demo: process reference samples through all algorithms at various ratios, publish results as interactive page with waveform/spectrogram visualization and audio playback
 
 ### Non-goals
 - Not a DAW/framework — raw algorithms only
 - Not competing on proprietary quality (Élastique) — competing on openness, composability, correctness
-- Not wrapping C++ libraries — pure JS implementations that can compile to WASM
+- Not wrapping C++ libraries — pure JS implementations first
+- Not exposing low-level STFT internals as a stable public API yet — algorithm-level primitives first
 
 ---
 
@@ -148,18 +149,20 @@ Layer 3: time-stretch (this package)               ← raw algorithms
          └── util.js
 ```
 
-### API Pattern (matches audio-filter/audio-effect)
+### API Pattern (current public API)
 ```js
 // Offline (full buffer)
 let out = wsola(data, { factor: 1.5 })
 
-// Streaming (block-by-block, state in params)
-let p = { factor: 1.5, fs: 44100 }
+// Streaming (block-by-block, state inside returned writer)
+let write = wsola({ factor: 1.5 })
 for (let block of stream) {
-  let stretched = wsola(block, p)  // p._state persists
-  output(stretched)
+  output(write(block))
 }
+let tail = write()
 ```
+
+Layer adapters can still wrap this writer form into mutable params/state if another package wants that shape.
 
 ### Signature Convention
 ```js

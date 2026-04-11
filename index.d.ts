@@ -32,12 +32,22 @@ export interface PsolaOpts {
   maxFreq?: number
 }
 
+export interface PitchShiftDecision {
+  method: string
+  reason: string
+  ratio: number
+  semitones: number
+  content?: 'music' | 'voice' | 'speech' | 'tonal'
+  formant: boolean
+}
+
 export interface PitchShiftOpts {
   semitones?: number
   ratio?: number
   formant?: boolean
   content?: 'music' | 'voice' | 'speech' | 'tonal'
-  method?: StretchFn
+  method?: ((data: Float32Array, opts?: any) => Float32Array)
+  onDecision?: (decision: PitchShiftDecision) => void
   sampleRate?: number
   minFreq?: number
   maxFreq?: number
