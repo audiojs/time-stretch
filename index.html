@@ -164,7 +164,7 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
 </a>
 
 <h1>time-stretch</h1>
-<p class="subtitle">Time stretching &amp; pitch shifting — 10 algorithms, live in-browser</p>
+<p class="subtitle">Time stretching &amp; pitch shifting — live in-browser</p>
 
 <div class="source-bar">
   <label>Source</label>
@@ -191,30 +191,28 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
 {
   "imports": {
     "fourier-transform": "https://esm.sh/fourier-transform",
-    "window-function": "https://esm.sh/window-function",
     "time-stretch": "./index.js"
   }
 }
 </script>
 <script type="module">
-import { ola, wsola, vocoder, phaseLock, transient, paulstretch, psola, formantShift, sms } from 'time-stretch'
+import { wsola, vocoder, paulstretch, psola, formantShift, sms } from 'time-stretch'
 
 const SR = 44100
 const PI2 = Math.PI * 2
 const FACTORS = [0.5, 1.5, 2]
 let waveMode = 'raw'
 const ALGOS = [
-  { name: 'ola',         fn: ola,         tag: 'OLA' },
-  { name: 'wsola',       fn: wsola,       tag: 'WSOLA' },
-  { name: 'vocoder',     fn: vocoder,     tag: 'spectral' },
-  { name: 'phaseLock',   fn: phaseLock,   tag: 'spectral' },
-  { name: 'transient',   fn: transient,   tag: 'spectral' },
-  { name: 'paulstretch', fn: paulstretch, tag: 'spectral',  stretchOnly: true },
-  { name: 'psola',       fn: psola,       tag: 'pitch-sync', needsSR: true },
-  { name: 'formantShift',fn: formantShift,tag: 'formant',
+  { name: 'wsola',               fn: wsola,       tag: 'WSOLA' },
+  { name: 'vocoder',             fn: vocoder,     tag: 'spectral' },
+  { name: 'vocoder+lock',        fn: vocoder,     tag: 'spectral', opts: fi => ({ factor: FACTORS[fi], lock: true }) },
+  { name: 'vocoder+transients',  fn: vocoder,     tag: 'spectral', opts: fi => ({ factor: FACTORS[fi], transients: true }) },
+  { name: 'paulstretch',         fn: paulstretch, tag: 'spectral', stretchOnly: true },
+  { name: 'psola',               fn: psola,       tag: 'pitch-sync', needsSR: true },
+  { name: 'formantShift',        fn: formantShift,tag: 'formant',
     labels: ['−5 st', '0 st', '+5 st'],
     opts: fi => ({ semitones: [-5, 0, 5][fi] }) },
-  { name: 'sms',         fn: sms,         tag: 'sinusoidal' },
+  { name: 'sms',                 fn: sms,         tag: 'sinusoidal' },
 ]
 
 // ── signal generators ─────────────────────

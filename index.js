@@ -1,8 +1,5 @@
-export { default as ola } from './ola.js'
 export { default as wsola } from './wsola.js'
 export { default as vocoder } from './vocoder.js'
-export { default as phaseLock } from './phase-lock.js'
-export { default as transient } from './transient.js'
 export { default as paulstretch } from './paulstretch.js'
 export { default as psola } from './psola.js'
 export { default as pitchShift } from './pitch-shift.js'

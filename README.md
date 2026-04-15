@@ -4,12 +4,11 @@ Time stretching and pitch shifting.
 
 | | Domain | Quality | CPU cost | Best for |
 |---|---|---|---|---|
-| [ola](#ola) | time | ★ | lowest | prototyping only |
 | [wsola](#wsola) | time | ★★★ | low | speech, real-time |
 | [psola](#psola) | time | ★★★★ | medium | speech / monophonic instruments |
-| [vocoder](#vocoder) | freq | ★★ | medium | educational, simple tonal |
-| [phaseLock](#phaselock) | freq | ★★★★ | medium | general music |
-| [transient](#transient) | freq | ★★★★★ | medium | music with percussion |
+| [vocoder](#vocoder) | freq | ★★ | medium | educational baseline |
+| [vocoder `{ lock }`](#vocoder) | freq | ★★★★ | medium | general music |
+| [vocoder `{ transients }`](#vocoder) | freq | ★★★★★ | medium | music with percussion |
 | [paulstretch](#paulstretch) | freq | — | medium | extreme stretch (ambient, drones) |
 | [sms](#sms) | sinusoidal | ★★★★ | high | harmonic / tonal material |
 | [formantShift](#formantshift) | freq | ★★★★ | medium | voice pitch shift |
@@ -22,43 +21,22 @@ npm install time-stretch
 ```
 
 ```js
-import { phaseLock, pitchShift } from 'time-stretch'
+import { vocoder, pitchShift } from 'time-stretch'
 
-let slower = phaseLock(samples, { factor: 2 })        // 2× slower, same pitch
-let higher = pitchShift(samples, { semitones: 5 })     // pitch up, same speed
+let slower = vocoder(samples, { factor: 2, transients: true })  // 2× slower, same pitch
+let higher = pitchShift(samples, { semitones: 5 })               // pitch up, same speed
 
-let write = phaseLock({ factor: 1.5 })                 // real-time streaming
+let write = vocoder({ factor: 1.5, transients: true })           // real-time streaming
 write(block1)
 write(block2)
-write()                                                 // → remaining samples
+write()                                                           // → remaining samples
 ```
 
 ## Time domain
 
-### `ola`
-
-Overlap-Add. Simplest possible: window each frame, place at new position, crossfade. No alignment, no FFT. Fast, but misaligned phase between overlapping frames causes audible flanging on all material.
-
-```js
-import { ola } from 'time-stretch'
-
-ola(data, { factor: 2 })
-ola(data, { factor: 0.5, frameSize: 4096 })
-```
-
-| Param | Default | |
-|---|---|---|
-| `factor` | `1` | Time stretch ratio |
-| `frameSize` | `2048` | Window size in samples |
-| `hopSize` | `frameSize/4` | Hop between frames |
-
-**Use when:** CPU is the only constraint, quick previews, educational baseline.<br>
-**Not for:** Any production use — audible flanging on all material. Use [wsola](#wsola) instead.
-
-
 ### `wsola`
 
-Waveform Similarity Overlap-Add. Like OLA, but searches for the best alignment within a tolerance window via cross-correlation — no FFT overhead. Each frame is placed at the position that maximizes waveform similarity with the preceding output, eliminating phase cancellation.
+Waveform Similarity Overlap-Add. Divides signal into overlapping frames and places them at new synthesis positions, but before placing each frame searches ±delta samples for the position that maximizes cross-correlation with the preceding output — eliminating the phase cancellation (flanging) of plain OLA. No FFT overhead.
 
 ```js
 import { wsola } from 'time-stretch'
@@ -80,7 +58,7 @@ wsola(data, { factor: 0.5, delta: 512 })
 
 ### `psola`
 
-Pitch-Synchronous Overlap-Add. Detects pitch via autocorrelation, then windows grains at pitch period boundaries. Because grains align with the pitch cycle, there are no phase discontinuities at overlaps — cleaner results than OLA/WSOLA for monophonic pitched signals.
+Pitch-Synchronous Overlap-Add. Detects pitch period via autocorrelation, then windows grains at pitch cycle boundaries. Because grains align with the pitch cycle there are no phase discontinuities at overlaps — cleaner results than WSOLA for monophonic pitched signals.
 
 ```js
 import { psola } from 'time-stretch'
@@ -98,19 +76,28 @@ psola(data, { factor: 2, minFreq: 100, maxFreq: 400 })  // male voice range
 | `maxFreq` | `500` | Highest expected pitch (Hz) |
 
 **Use when:** Speech, solo vocals, monophonic instruments, factors 0.5–2×.<br>
-**Not for:** Polyphonic material — autocorrelation finds one pitch period, so chords and multi-voice signals get mangled. Use [phaseLock](#phaselock) or [transient](#transient) for full mixes. Extreme ratios (>2×) cause gaps.
+**Not for:** Polyphonic material — autocorrelation finds one pitch period so chords get mangled. Extreme ratios (>2×) cause gaps.
 
 
 ## Frequency domain
 
 ### `vocoder`
 
-Phase vocoder. STFT → propagate phases forward → ISTFT. Magnitudes are preserved; phases advance by each bin's instantaneous frequency. Preserves pitch perfectly, but each bin evolves independently — incoherent phase relationships between harmonics give complex signals a diffuse, "underwater" quality.
+Phase vocoder with three quality modes, controlled by `lock` and `transients` options.
+
+**Plain** — each bin's phase advances at its instantaneous frequency independently. Magnitudes are preserved but incoherent inter-harmonic phase relationships give complex signals a diffuse, "underwater" quality.
+
+**`{ lock: true }`** — after propagating phases, locks non-peak bins to their nearest spectral peak's rotation (Laroche & Dolson, 1999). Restores harmonic phase coherence, eliminating phasiness.
+
+**`{ transients: true }`** — phase-locked vocoder that also measures spectral flux between frames (Röbel, 2003). When a sharp onset is detected it resets to the original analysis phase instead of propagating it, preserving attack sharpness on drums and plucks. Implies `lock`.
 
 ```js
 import { vocoder } from 'time-stretch'
 
-vocoder(data, { factor: 2 })
+vocoder(data, { factor: 2 })                                      // plain — educational baseline
+vocoder(data, { factor: 2, lock: true })                          // phase-locked — general music
+vocoder(data, { factor: 2, transients: true })                    // transient-aware — best quality
+vocoder(data, { factor: 1.5, transientThreshold: 2.0 })           // less sensitive detection
 ```
 
 | Param | Default | |
@@ -118,51 +105,14 @@ vocoder(data, { factor: 2 })
 | `factor` | `1` | Time stretch ratio |
 | `frameSize` | `2048` | FFT size (power of 2) |
 | `hopSize` | `frameSize/4` | Hop between frames |
-
-**Use when:** Educational baseline, simple tonal signals.<br>
-**Not for:** Production music. Use [phaseLock](#phaselock) or [transient](#transient) instead.
-
-
-### `phaseLock`
-
-Phase vocoder with identity phase locking (Laroche & Dolson, 1999). Same pipeline as vocoder, but after propagating phases, locks non-peak bins to their nearest spectral peak's rotation — preserving harmonic phase relationships and eliminating the "phasiness" of a plain vocoder.
-
-```js
-import { phaseLock } from 'time-stretch'
-
-phaseLock(data, { factor: 2 })
-```
-
-| Param | Default | |
-|---|---|---|
-| `factor` | `1` | Time stretch ratio |
-| `frameSize` | `2048` | FFT size (power of 2) |
-| `hopSize` | `frameSize/4` | Hop between frames |
-
-**Use when:** General-purpose music stretching — best quality-to-cost ratio for tonal material.<br>
-**Not for:** Material with sharp transients (drums, plucks) — still smears onsets. Use [transient](#transient) for that.
-
-
-### `transient`
-
-Phase-locked vocoder with transient detection (Röbel, 2003). Same as phaseLock, but measures spectral flux between frames — when a sharp onset is detected, it resets to the original phase instead of propagating it, preserving attack sharpness on drums and plucks.
-
-```js
-import { transient } from 'time-stretch'
-
-transient(data, { factor: 2 })
-transient(data, { factor: 1.5, transientThreshold: 2.0 })  // less sensitive
-```
-
-| Param | Default | |
-|---|---|---|
-| `factor` | `1` | Time stretch ratio |
-| `frameSize` | `2048` | FFT size (power of 2) |
-| `hopSize` | `frameSize/4` | Hop between frames |
+| `lock` | `false` | Phase locking (Laroche & Dolson, 1999) |
+| `transients` | `false` | Transient detection, implies `lock` (Röbel, 2003) |
 | `transientThreshold` | `1.5` | Spectral flux threshold (higher = fewer resets) |
 
-**Use when:** Mixed material — music with drums, speech with plosives, anything with sharp attacks.<br>
-**Not for:** Purely tonal/ambient material — phaseLock is sufficient and avoids occasional false-positive resets.
+**Use when:** `transients: true` is the right default for most material — music with percussion, mixed sources.<br>
+`lock: true` for purely tonal/ambient material where transient resets aren't needed.<br>
+Plain for educational use or simple tonal signals only.<br>
+**Not for:** Voice/speech — use [psola](#psola). Extreme stretch — use [paulstretch](#paulstretch).
 
 
 ### `paulstretch`
@@ -180,6 +130,7 @@ paulstretch(data, { factor: 100, frameSize: 8192 })
 |---|---|---|
 | `factor` | `8` | Time stretch ratio (best >2×) |
 | `frameSize` | `4096` | FFT size (larger = smoother) |
+| `seed` | `0x12345678` | PRNG seed for phase randomization (deterministic output) |
 
 **Use when:** Ambient music, sound design, drone generation, 8×–1000× stretch.<br>
 **Not for:** Small ratios (<2×) — sounds washed out. Not for preserving rhythm or transients.
@@ -209,7 +160,7 @@ sms(data, { factor: 3, frameSize: 4096 })
 | `freqDev` | `3` | Max frequency deviation (bins) for track continuation |
 | `residualMix` | `1` | Stochastic residual blended into the sinusoidal output |
 
-**Use when:** Harmonic / tonal content — instruments, chords, vocals — where phaseLock introduces smearing. Default `residualMix=1` adds stochastic residual synthesis, blending breath, noise, and transient energy back in alongside the sinusoidal model.<br>
+**Use when:** Harmonic / tonal content — instruments, chords, vocals — where the vocoder introduces smearing. Default `residualMix=1` blends breath, noise, and transient energy back in alongside the sinusoidal model.<br>
 **Not for:** Noise-dominated material.
 
 
@@ -217,34 +168,26 @@ sms(data, { factor: 3, frameSize: 4096 })
 
 ### `pitchShift`
 
-Pitch shifting via time-stretch + resample: stretches by the pitch ratio (ratio = 2^(semitones/12)), then resamples back to original length. Output length equals input length.
+Pitch shifting via time-stretch + resample: stretches by the pitch ratio (`ratio = 2^(semitones/12)`), then resamples back to original length. Output length equals input length.
 
 ```js
 import { pitchShift } from 'time-stretch'
 
-pitchShift(data, { semitones: 7 })                                        // perfect fifth up
-pitchShift(data, { semitones: -12 })                                      // octave down
-pitchShift(data, { ratio: 1.5 })                                          // direct ratio
-pitchShift(data, { semitones: 5, content: 'voice', sampleRate: 48000 })  // psola backend
-pitchShift(data, { semitones: 5, content: 'tonal' })                      // sms backend
-pitchShift(data, { semitones: 5, formant: true })                         // formant-preserving
+pitchShift(data, { semitones: 7 })    // perfect fifth up
+pitchShift(data, { semitones: -12 })  // octave down
+pitchShift(data, { ratio: 1.5 })      // direct ratio
 ```
 
 | Param | Default | |
 |---|---|---|
 | `semitones` | `0` | Pitch shift in semitones |
 | `ratio` | from semitones | Direct frequency ratio |
-| `content` | `music` | Default backend choice (`music` → `transient`, `voice`/`speech` → `psola`, `tonal` → `sms`) |
-| `method` | content-dependent | Stretch algorithm override (`transient`, `psola`, `sms`, `wsola`, etc.) |
-| `sampleRate` | `44100` | Used by voice-oriented methods like `psola` |
-| `minFreq` | backend default | Passed to `psola` when used |
-| `maxFreq` | backend default | Passed to `psola` when used |
 | `frameSize` | `2048` | Passed to stretch method |
 | `hopSize` | `frameSize/4` | Passed to stretch method |
-| `formant` | `false` | Use formant-preserving mode (delegates to `formantShift`) |
+| `transientThreshold` | `1.5` | Transient sensitivity |
 
 **Use when:** Pitch correction, harmonizing, creative effects.<br>
-**Not for:** Large shifts on voice without `formant: true` — will sound chipmunk/giant. Set `content` to match your material for best results.
+**Not for:** Voice without formant preservation — will sound chipmunk/giant. Use [formantShift](#formantshift) instead. For content-aware algorithm selection (voice → psola, tonal → sms) call those functions directly.
 
 
 ### `formantShift`
@@ -279,7 +222,7 @@ formantShift(data, { ratio: 1.5 })
 All algorithms support block-by-block streaming. Call with options only (no data) to get a writer:
 
 ```js
-let write = phaseLock({ factor: 1.5 })
+let write = vocoder({ factor: 1.5, transients: true })
 
 // in your audio callback:
 let output = write(inputBlock)    // → Float32Array (may be empty while buffering)
@@ -293,11 +236,8 @@ let tail = write()                // → remaining buffered samples
 - Use one writer per channel for stereo or multichannel material.
 
 ```js
-ola({ factor })
 wsola({ factor })
-vocoder({ factor })
-phaseLock({ factor })
-transient({ factor, transientThreshold })
+vocoder({ factor, lock, transients, transientThreshold })
 paulstretch({ factor })
 psola({ factor, sampleRate, minFreq, maxFreq })
 sms({ factor, maxTracks, minMag, freqDev })
@@ -307,10 +247,10 @@ formantShift({ semitones, ratio, envelopeWidth })
 ### One-shot buffer
 
 ```js
-import { transient } from 'time-stretch'
+import { vocoder } from 'time-stretch'
 
 let src = audioBuffer.getChannelData(0)
-let out = transient(new Float32Array(src), { factor: 1.25 })
+let out = vocoder(new Float32Array(src), { factor: 1.25, transients: true })
 ```
 
 ### Stereo / multi-channel
@@ -318,12 +258,12 @@ let out = transient(new Float32Array(src), { factor: 1.25 })
 All algorithms process mono `Float32Array`. For stereo, split channels and process independently:
 
 ```js
-let L = phaseLock(left, { factor: 2 })
-let R = phaseLock(right, { factor: 2 })
+let L = vocoder(left,  { factor: 2, transients: true })
+let R = vocoder(right, { factor: 2, transients: true })
 
 // Streaming:
-let wL = phaseLock({ factor: 2 })
-let wR = phaseLock({ factor: 2 })
+let wL = vocoder({ factor: 2, transients: true })
+let wR = vocoder({ factor: 2, transients: true })
 ```
 
 
@@ -343,7 +283,6 @@ let wR = phaseLock({ factor: 2 })
 
 * [pitch-shift](https://github.com/audiojs/pitch-shift) — related pitch shifting algos
 * [fourier-transform](https://github.com/audiojs/fourier-transform) — FFT
-* [window-function](https://github.com/audiojs/window-function) — Hann, Hamming, Blackman, etc.
 * [audio-filter](https://github.com/audiojs/audio-filter) — audio filters
 * [digital-filter](https://github.com/audiojs/digital-filter) — filter design
 
@@ -356,6 +295,8 @@ let wR = phaseLock({ factor: 2 })
 * Nasca, P. (2006). "PaulStretch — extreme time stretching." _paulnasca.com_.
 * Moulines, E. & Charpentier, F. (1990). "Pitch-synchronous waveform processing techniques for text-to-speech synthesis using diphones." _Speech Communication_, 9(5-6).
 * Driedger, J. & Müller, M. (2016). "A review of time-scale modification of music signals." _Applied Sciences_, 6(2).
+* Serra, X. (1989). "A System for Sound Analysis/Transformation/Synthesis Based on a Deterministic plus Stochastic Decomposition." PhD thesis, Stanford.
+* McAulay, R.J. & Quatieri, T.F. (1986). "Speech analysis/synthesis based on a sinusoidal representation." _IEEE Trans. ASSP_, 34(4).
 
 
 <div align="center">

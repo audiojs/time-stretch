@@ -1,5 +1,5 @@
-import { stftBatch, stftStream } from './stft.js'
-import { wrapPhase, writer } from './util.js'
+import { stftBatch, stftStream, wrapPhase } from './stft.js'
+import { writer } from './util.js'
 
 // Spectral envelope via moving average of magnitude
 // Simpler and more numerically stable than cepstral method

@@ -1,5 +1,3 @@
-import { hann } from 'window-function'
-
 const PI2 = Math.PI * 2
 
 export function clamp(v, min, max) {
@@ -15,7 +13,7 @@ let _hannCache = new Map()
 export function hannWindow(N) {
   if (_hannCache.has(N)) return _hannCache.get(N)
   let w = new Float64Array(N)
-  for (let i = 0; i < N; i++) w[i] = hann(i, N)
+  for (let i = 0; i < N; i++) w[i] = 0.5 * (1 - Math.cos(PI2 * i / N))
   _hannCache.set(N, w)
   return w
 }
@@ -26,101 +24,78 @@ export function normalize(out, norm) {
   }
 }
 
-export function wrapPhase(p) {
-  return p - Math.round(p / PI2) * PI2
-}
+function sinc(x) { return x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x) }
 
-export function findPeaks(mag, half) {
-  let peaks = new Uint8Array(half + 1)
-  if (half <= 1) {
-    peaks[0] = 1
-    if (half === 1) peaks[1] = 1
-    return peaks
-  }
-
-  let maxMag = 0
-  for (let k = 0; k <= half; k++) if (mag[k] > maxMag) maxMag = mag[k]
-
-  let minMag = Math.max(1e-8, maxMag * 0.015)
-  let minProm = Math.max(1e-9, maxMag * 0.003)
-  let lastPeak = -2
-  let lastPeakMag = 0
-
-  for (let k = 1; k < half; k++) {
-    let value = mag[k]
-    if (value < minMag || value < mag[k - 1] || value < mag[k + 1]) continue
-
-    let shoulder = Math.max(
-      mag[k - 1],
-      mag[k + 1],
-      k > 1 ? mag[k - 2] : 0,
-      k + 2 <= half ? mag[k + 2] : 0,
-    )
-    let prominent = value - shoulder >= minProm || value >= maxMag * 0.1
-    if (!prominent) continue
-
-    if (k - lastPeak <= 1) {
-      if (value > lastPeakMag) {
-        peaks[lastPeak] = 0
-        peaks[k] = 1
-        lastPeak = k
-        lastPeakMag = value
-      }
-      continue
-    }
-
-    peaks[k] = 1
-    lastPeak = k
-    lastPeakMag = value
-  }
-
-  let found = false
-  for (let k = 0; k <= half; k++) {
-    if (peaks[k]) {
-      found = true
-      break
-    }
-  }
-
-  if (!found) {
-    let best = 0
-    for (let k = 1; k <= half; k++) if (mag[k] > mag[best]) best = k
-    peaks[best] = 1
-  }
-
-  return peaks
-}
-
-export function lockPhase(phase, propPhase, mag, half) {
-  let peaks = findPeaks(mag, half)
-  let peakBins = []
-  for (let k = 0; k <= half; k++) if (peaks[k]) peakBins.push(k)
-  if (!peakBins.length) return
-
-  for (let i = 0; i < peakBins.length; i++) {
-    let pk = peakBins[i]
-    let start = i === 0 ? 0 : Math.floor((peakBins[i - 1] + pk) * 0.5) + 1
-    let end = i === peakBins.length - 1 ? half : Math.floor((pk + peakBins[i + 1]) * 0.5)
-    let delta = propPhase[pk] - phase[pk]
-    let lockFloor = Math.max(1e-10, mag[pk] * 0.03)
-
-    for (let k = start; k <= end; k++) {
-      if (k === pk || mag[k] < lockFloor) continue
-      propPhase[k] = phase[k] + delta
-    }
-  }
-}
-
+// Windowed sinc resampler (Lanczos, a=3) — avoids aliasing from linear interpolation
 export function resample(data, outLen) {
   let out = new Float32Array(outLen)
   let ratio = (data.length - 1) / (outLen - 1 || 1)
+  let a = 3, n = data.length
   for (let i = 0; i < outLen; i++) {
     let pos = i * ratio
-    let idx = pos | 0
-    let frac = pos - idx
-    out[i] = data[idx] * (1 - frac) + (data[idx + 1] || 0) * frac
+    let lo = Math.ceil(pos - a), hi = Math.floor(pos + a)
+    let sum = 0, wsum = 0
+    for (let j = Math.max(0, lo); j <= Math.min(n - 1, hi); j++) {
+      let d = pos - j, w = sinc(d) * sinc(d / a)
+      sum += data[j] * w
+      wsum += w
+    }
+    out[i] = wsum > 0 ? sum / wsum : 0
   }
   return out
+}
+
+// Shared streaming buffer state: inBuf, outBuf/nrmBuf with grow/compact/take
+export function makeStreamBufs(N, nf = 0) {
+  let ib = new Float32Array(N * 4), il = 0
+  let ob = new Float32Array(N * 8), nb = new Float32Array(N * 8)
+  let pos = 0, oread = 0
+
+  function appendIn(chunk) {
+    let need = il + chunk.length
+    if (need > ib.length) {
+      let b = new Float32Array(Math.max(need * 2, ib.length * 2))
+      b.set(ib.subarray(0, il)); ib = b
+    }
+    ib.set(chunk, il); il += chunk.length
+  }
+
+  function growOut(need) {
+    if (need <= ob.length) return
+    let len = Math.max(need * 2, ob.length * 2)
+    let o = new Float32Array(len), n = new Float32Array(len)
+    o.set(ob); n.set(nb); ob = o; nb = n
+  }
+
+  function compactIn(trim) {
+    if (trim <= 0) return
+    ib.copyWithin(0, trim, il); il -= trim
+  }
+
+  function take(upTo) {
+    upTo = Math.min(upTo, pos)
+    if (upTo <= oread) return new Float32Array(0)
+    let len = Math.floor(upTo - oread)
+    let out = new Float32Array(len)
+    for (let i = 0; i < len; i++) {
+      let j = oread + i, n = nf > 0 ? Math.max(nb[j], nf) : nb[j]
+      out[i] = n > 1e-8 ? ob[j] / n : 0
+    }
+    oread += len
+    if (oread > N * 8) {
+      ob.copyWithin(0, oread); nb.copyWithin(0, oread)
+      pos -= oread; oread = 0
+      ob.fill(0, pos); nb.fill(0, pos)
+    }
+    return out
+  }
+
+  return {
+    get ib() { return ib }, get il() { return il },
+    get ob() { return ob }, get nb() { return nb },
+    get pos() { return pos }, set pos(v) { pos = v },
+    appendIn, growOut, compactIn, take
+  }
 }
 
 export { PI2 }

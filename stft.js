@@ -1,5 +1,9 @@
 import { fft, ifft } from 'fourier-transform'
-import { hannWindow, normalize, PI2 } from './util.js'
+import { hannWindow, normalize, PI2, makeStreamBufs } from './util.js'
+
+export function wrapPhase(p) {
+  return p - Math.round(p / PI2) * PI2
+}
 
 function frame(data, pos, win, half, process, state, ctx, sc) {
   let N = win.length
@@ -81,87 +85,38 @@ export function stftStream(process, opts) {
   let synHop = opts?.synHop ?? hop
   let anaHop = opts?.anaHop ?? hop / factor
   let ctx = { anaHop, synHop, half, N, freqPerBin: PI2 / N }
-
-  let inBuf = new Float32Array(N * 4)
-  let inLen = 0
-  let outBuf = new Float32Array(N * 8)
-  let normBuf = new Float32Array(N * 8)
-  let aPos = 0, sPos = 0, oRead = 0
-  let state = {}
-  let sc = scratch(N, half)
-  let flushed = false
+  let state = {}, sc = scratch(N, half)
   let nf = normFloor(win, synHop)
 
-  function appendIn(chunk) {
-    let need = inLen + chunk.length
-    if (need > inBuf.length) {
-      let nb = new Float32Array(Math.max(need * 2, inBuf.length * 2))
-      nb.set(inBuf.subarray(0, inLen))
-      inBuf = nb
-    }
-    inBuf.set(chunk, inLen)
-    inLen += chunk.length
-  }
+  let st = makeStreamBufs(N, nf)
+  let aPos = 0, flushed = false
 
   function run() {
-    while (Math.round(aPos) + N <= inLen) {
-      let sf = frame(inBuf, Math.round(aPos), win, half, process, state, ctx, sc)
-      let need = sPos + N
-      if (need > outBuf.length) {
-        let len = Math.max(need * 2, outBuf.length * 2)
-        let ob = new Float32Array(len), nb = new Float32Array(len)
-        ob.set(outBuf); nb.set(normBuf)
-        outBuf = ob; normBuf = nb
-      }
+    while (Math.round(aPos) + N <= st.il) {
+      let sf = frame(st.ib, Math.round(aPos), win, half, process, state, ctx, sc)
+      st.growOut(st.pos + N)
+      let ob = st.ob, nb = st.nb, base = st.pos
       for (let i = 0; i < N; i++) {
-        outBuf[sPos + i] += sf[i] * win[i]
-        normBuf[sPos + i] += win[i] * win[i]
+        ob[base + i] += sf[i] * win[i]
+        nb[base + i] += win[i] * win[i]
       }
       aPos += anaHop
-      sPos += synHop
+      st.pos += synHop
     }
     let used = Math.floor(aPos)
-    if (used > N * 2) {
-      let trim = used - N
-      inBuf.copyWithin(0, trim, inLen)
-      inLen -= trim
-      aPos -= trim
-    }
-  }
-
-  function take(upTo) {
-    upTo = Math.min(upTo, sPos)
-    if (upTo <= oRead) return new Float32Array(0)
-    let len = Math.floor(upTo - oRead)
-    let out = new Float32Array(len)
-    for (let i = 0; i < len; i++) {
-      let j = oRead + i
-      let n = Math.max(normBuf[j], nf)
-      out[i] = n > 1e-8 ? outBuf[j] / n : 0
-    }
-    oRead += len
-    if (oRead > N * 8) {
-      let shift = oRead
-      outBuf.copyWithin(0, shift)
-      normBuf.copyWithin(0, shift)
-      sPos -= shift
-      oRead = 0
-      outBuf.fill(0, sPos)
-      normBuf.fill(0, sPos)
-    }
-    return out
+    if (used > N * 2) { st.compactIn(used - N); aPos -= used - N }
   }
 
   return {
     write(chunk) {
-      appendIn(chunk)
+      st.appendIn(chunk)
       run()
-      return take(Math.max(0, sPos - N + synHop))
+      return st.take(Math.max(0, st.pos - N + synHop))
     },
     flush() {
-      if (!flushed) { appendIn(new Float32Array(N)); flushed = true }
+      if (!flushed) { st.appendIn(new Float32Array(N)); flushed = true }
       run()
-      return take(sPos)
+      return st.take(st.pos)
     }
   }
 }

@@ -1,5 +1,12 @@
 import test, { almost, ok, is } from 'tst'
-import { ola, wsola, vocoder, phaseLock, transient, paulstretch, psola, pitchShift, formantShift, sms } from './index.js'
+import { wsola, vocoder, paulstretch, psola, pitchShift, formantShift, sms } from './index.js'
+
+// Compatibility aliases using merged API
+const ola = (d, o) => d instanceof Float32Array
+  ? wsola(d, { ...o, frameSize: o?.frameSize || 2048, delta: 0 })
+  : wsola({ ...d, frameSize: d?.frameSize || 2048, delta: 0 })
+const phaseLock = (d, o) => vocoder(d, { ...(o || {}), lock: true })
+const transient = (d, o) => vocoder(d, { ...(o || {}), transients: true })
 
 let fs = 44100
 
@@ -199,25 +206,11 @@ test('pitchShift — ratio parameter', () => {
   ok(rms(out) > 0.1, 'has signal')
 })
 
-test('pitchShift — wsola method', () => {
-  let data = sine(440, 8192, fs)
-  let out = pitchShift(data, { semitones: 5, method: wsola })
-  is(out.length, data.length)
-  ok(rms(out) > 0.1, 'has signal')
-})
-
-test('pitchShift — voice content uses PSOLA path', () => {
+test('pitchShift — psola direct call', () => {
   let data = sine(220, 8192, fs)
-  let out = pitchShift(data, { semitones: 4, content: 'voice', sampleRate: fs, minFreq: 80, maxFreq: 320 })
-  is(out.length, data.length)
+  let out = psola(data, { factor: Math.pow(2, 4 / 12) })
+  ok(out.length > 0, 'has output')
   ok(rms(out) > 0.1, 'has signal')
-})
-
-test('pitchShift — tonal content uses SMS path', () => {
-  let data = sine(330, 8192, fs)
-  let out = pitchShift(data, { semitones: 3, content: 'tonal' })
-  is(out.length, data.length)
-  ok(rms(out) > 0.05, 'has signal')
 })
 
 test('pitchShift — invalid ratio throws', () => {
@@ -242,31 +235,6 @@ test('pitchShift — invalid semitones throws', () => {
   ok(threw, 'throws for non-finite semitones')
 })
 
-test('pitchShift — onDecision reports fallback route', () => {
-  let data = sine(440, 8192, fs)
-  let decision
-  let out = pitchShift(data, {
-    semitones: 3,
-    onDecision: (d) => { decision = d }
-  })
-  is(out.length, data.length)
-  ok(!!decision, 'decision callback called')
-  is(decision.reason, 'fallback:transient')
-  is(decision.formant, false)
-})
-
-test('pitchShift — onDecision reports explicit method route', () => {
-  let data = sine(440, 8192, fs)
-  let decision
-  let out = pitchShift(data, {
-    semitones: 3,
-    method: wsola,
-    onDecision: (d) => { decision = d }
-  })
-  is(out.length, data.length)
-  ok(!!decision, 'decision callback called')
-  is(decision.reason, 'explicit-method')
-})
 
 // --- Streaming ---
 function testStream(name, fn, streamOpts = {}) {
@@ -414,9 +382,9 @@ test('formantShift — ratio parameter', () => {
   ok(rms(out) > 0.1, 'has signal')
 })
 
-test('pitchShift — formant: true delegates', () => {
+test('formantShift — semitones 5 shifts pitch', () => {
   let data = sine(440, 8192, fs)
-  let out = pitchShift(data, { semitones: 5, formant: true })
+  let out = formantShift(data, { semitones: 5 })
   is(out.length, data.length)
   ok(rms(out) > 0.1, 'has signal')
 })

@@ -1,14 +1,11 @@
-import { hannWindow, normalize } from './util.js'
+import { hannWindow, writer, makeStreamBufs } from './util.js'
 
 function overlapLength(frameSize, synHop, pos, limit) {
   return Math.max(0, Math.min(frameSize - synHop, pos, limit - pos))
 }
 
 export default function wsola(data, opts) {
-  if (!(data instanceof Float32Array)) {
-    let s = wsolaStream(data)
-    return (chunk) => chunk ? s.write(chunk) : s.flush()
-  }
+  if (!(data instanceof Float32Array)) return writer(wsolaStream(data))
 
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
@@ -59,7 +56,7 @@ export default function wsola(data, opts) {
     synPos += synHop
   }
 
-  normalize(out, norm)
+  for (let i = 0; i < outLen; i++) if (norm[i] > 1e-8) out[i] /= norm[i]
   return out
 }
 
@@ -72,100 +69,57 @@ function wsolaStream(opts) {
   let synHop = hopSize
   let anaHop = hopSize / factor
 
-  let inBuf = new Float32Array(frameSize * 4)
-  let inLen = 0
-  let outBuf = new Float32Array(frameSize * 8)
-  let normBuf = new Float32Array(frameSize * 8)
-  let aPos = 0, sPos = 0, oRead = 0
-
-  function appendIn(chunk) {
-    let need = inLen + chunk.length
-    if (need > inBuf.length) {
-      let nb = new Float32Array(Math.max(need * 2, inBuf.length * 2))
-      nb.set(inBuf.subarray(0, inLen))
-      inBuf = nb
-    }
-    inBuf.set(chunk, inLen)
-    inLen += chunk.length
-  }
+  let st = makeStreamBufs(frameSize)
+  let aPos = 0
 
   function run() {
-    while (Math.round(aPos) + frameSize <= inLen) {
+    while (Math.round(aPos) + frameSize <= st.il) {
       let nomPos = Math.round(aPos)
       let readPos = nomPos
 
-      if (sPos > 0 && delta > 0) {
+      if (st.pos > 0 && delta > 0) {
         let searchS = Math.max(0, nomPos - delta)
-        let searchE = Math.min(inLen - frameSize, nomPos + delta)
+        let searchE = Math.min(st.il - frameSize, nomPos + delta)
         if (searchE < searchS) break
-        let overlap = overlapLength(frameSize, synHop, sPos, outBuf.length)
+        let overlap = overlapLength(frameSize, synHop, st.pos, st.ob.length)
         let bestCorr = -Infinity, bestS = searchS
+        let ib = st.ib, ob = st.ob, corBase = st.pos
         for (let s = searchS; s <= searchE; s++) {
           let corr = 0
-          for (let i = 0; i < overlap; i++) corr += inBuf[s + i] * outBuf[sPos + i]
+          for (let i = 0; i < overlap; i++) corr += ib[s + i] * ob[corBase + i]
           if (corr > bestCorr) { bestCorr = corr; bestS = s }
         }
         readPos = bestS
       }
 
-      if (readPos + frameSize > inLen) break
+      if (readPos + frameSize > st.il) break
 
-      let need = sPos + frameSize
-      if (need > outBuf.length) {
-        let len = need * 2
-        let ob = new Float32Array(len), nb = new Float32Array(len)
-        ob.set(outBuf); nb.set(normBuf)
-        outBuf = ob; normBuf = nb
-      }
-
+      st.growOut(st.pos + frameSize)
+      let ob = st.ob, nb = st.nb, base = st.pos, ib = st.ib
       for (let i = 0; i < frameSize; i++) {
-        outBuf[sPos + i] += inBuf[readPos + i] * win[i]
-        normBuf[sPos + i] += win[i]
+        ob[base + i] += ib[readPos + i] * win[i]
+        nb[base + i] += win[i]
       }
-
       aPos += anaHop
-      sPos += synHop
+      st.pos += synHop
     }
-
     let used = Math.floor(aPos)
     if (used > frameSize * 2 + delta) {
       let trim = used - frameSize - delta
-      inBuf.copyWithin(0, trim, inLen)
-      inLen -= trim
+      st.compactIn(trim)
       aPos -= trim
     }
   }
 
-  function take(upTo) {
-    upTo = Math.min(upTo, sPos)
-    if (upTo <= oRead) return new Float32Array(0)
-    let len = Math.floor(upTo - oRead)
-    let out = new Float32Array(len)
-    for (let i = 0; i < len; i++) {
-      let j = oRead + i
-      out[i] = normBuf[j] > 1e-8 ? outBuf[j] / normBuf[j] : 0
-    }
-    oRead += len
-    if (oRead > frameSize * 8) {
-      outBuf.copyWithin(0, oRead)
-      normBuf.copyWithin(0, oRead)
-      sPos -= oRead
-      oRead = 0
-      outBuf.fill(0, sPos)
-      normBuf.fill(0, sPos)
-    }
-    return out
-  }
-
   return {
     write(chunk) {
-      appendIn(chunk)
+      st.appendIn(chunk)
       run()
-      return take(Math.max(0, sPos - frameSize + synHop))
+      return st.take(Math.max(0, st.pos - frameSize + synHop))
     },
     flush() {
       run()
-      return take(sPos)
+      return st.take(st.pos)
     }
   }
 }

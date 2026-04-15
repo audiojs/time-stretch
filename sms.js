@@ -9,7 +9,7 @@
 //   a sinusoidal representation." IEEE Trans. ASSP, 34(4).
 
 import { fft, ifft } from 'fourier-transform'
-import { hannWindow, clamp, normalize, writer, PI2 } from './util.js'
+import { hannWindow, clamp, normalize, writer, makeStreamBufs, PI2 } from './util.js'
 
 function createNoiseState(seed = 0x12345678) {
   return { seed: seed >>> 0 }
@@ -23,14 +23,11 @@ function nextNoisePhase(state) {
 function smoothResidual(mag, half, width) {
   let out = new Float64Array(half + 1)
   for (let k = 0; k <= half; k++) {
-    let sum = 0
-    let weightSum = 0
-    let start = Math.max(0, k - width)
-    let end = Math.min(half, k + width)
+    let sum = 0, weightSum = 0
+    let start = Math.max(0, k - width), end = Math.min(half, k + width)
     for (let j = start; j <= end; j++) {
       let weight = width + 1 - Math.abs(j - k)
-      sum += mag[j] * weight
-      weightSum += weight
+      sum += mag[j] * weight; weightSum += weight
     }
     out[k] = weightSum ? sum / weightSum : 0
   }
@@ -43,13 +40,11 @@ function residualEnvelope(mag, peaks, half, nTracks) {
 
   let count = Math.min(nTracks, peaks.length)
   for (let i = 0; i < count; i++) {
-    let peak = peaks[i]
-    let radius = 3.5
+    let peak = peaks[i], radius = 3.5
     let start = Math.max(1, Math.floor(peak.bin - radius))
     let end = Math.min(half - 1, Math.ceil(peak.bin + radius))
     for (let k = start; k <= end; k++) {
-      let distance = Math.abs(k - peak.bin)
-      let weight = Math.max(0, 1 - distance / radius)
+      let weight = Math.max(0, 1 - Math.abs(k - peak.bin) / radius)
       residual[k] = Math.max(0, residual[k] - peak.mag * weight)
     }
   }
@@ -78,7 +73,6 @@ function trackPeaks(prev, curr, n, maxDev) {
   let out = new Array(n)
   for (let i = 0; i < n; i++) out[i] = { bin: 0, mag: 0 }
 
-  // Build candidate pairs sorted by combined cost
   let pairs = []
   for (let i = 0; i < n; i++) {
     if (!prev[i].bin) continue
@@ -91,16 +85,12 @@ function trackPeaks(prev, curr, n, maxDev) {
   }
   pairs.sort((a, b) => a.c - b.c)
 
-  let taken = new Uint8Array(curr.length)
-  let assigned = new Uint8Array(n)
+  let taken = new Uint8Array(curr.length), assigned = new Uint8Array(n)
   for (let { t, p } of pairs) {
     if (assigned[t] || taken[p]) continue
-    out[t] = curr[p]
-    assigned[t] = 1
-    taken[p] = 1
+    out[t] = curr[p]; assigned[t] = 1; taken[p] = 1
   }
 
-  // Birth: remaining peaks → empty slots
   let empty = []
   for (let i = 0; i < n; i++) if (!assigned[i]) empty.push(i)
   let e = 0
@@ -127,25 +117,22 @@ function analyzeFrame(data, pos, win, N, half, thresh, prev, nTracks, maxDev, pr
   let tracks = trackPeaks(prev, peaks, nTracks, maxDev)
 
   let residual = residualEnvelope(mag, peaks, half, nTracks)
-  // Temporal smoothing: blend with previous frame to reduce sudden jumps
   if (prevResidual) for (let k = 0; k <= half; k++) residual[k] = 0.7 * residual[k] + 0.3 * prevResidual[k]
   return { tracks, residual }
 }
 
 // Build synthesis spectrum from interpolated tracks, IFFT to time domain
 function synthFrame(t0, t1, r0, r1, alpha, nTracks, phi, half, N, hop, noiseState, residualMix) {
-  let re = new Float64Array(half + 1)
-  let im = new Float64Array(half + 1)
+  let re = new Float64Array(half + 1), im = new Float64Array(half + 1)
   let dphi = PI2 * hop / N
 
   for (let i = 0; i < nTracks; i++) {
-    let b0 = t0[i].bin, m0 = t0[i].mag
-    let b1 = t1[i].bin, m1 = t1[i].mag
+    let b0 = t0[i].bin, m0 = t0[i].mag, b1 = t1[i].bin, m1 = t1[i].mag
     if (!b0 && !b1) continue
 
     let bin, mag
-    if (!b0) { bin = b1; mag = m1 * alpha }             // birth: fade in
-    else if (!b1) { bin = b0; mag = m0 * (1 - alpha) }  // death: fade out
+    if (!b0) { bin = b1; mag = m1 * alpha }
+    else if (!b1) { bin = b0; mag = m0 * (1 - alpha) }
     else { bin = b0 + (b1 - b0) * alpha; mag = m0 + (m1 - m0) * alpha }
 
     phi[i] += bin * dphi
@@ -170,9 +157,7 @@ function synthFrame(t0, t1, r0, r1, alpha, nTracks, phi, half, N, hop, noiseStat
 }
 
 export default function sms(data, opts = {}) {
-  if (!(data instanceof Float32Array)) {
-    return writer(smsStream(data))
-  }
+  if (!(data instanceof Float32Array)) return writer(smsStream(data))
 
   let factor = opts.factor ?? 1
   let N = opts.frameSize ?? 2048
@@ -187,43 +172,33 @@ export default function sms(data, opts = {}) {
 
   if (factor === 1) return new Float32Array(data)
 
-  // Analysis pass: detect and track sinusoidal partials
+  // Analysis pass
   let nAna = Math.max(1, Math.floor((data.length - N) / hop) + 1)
   let frames = new Array(nAna)
-  let prev = emptyTracks(nTracks)
-  let prevResidual = null
+  let prev = emptyTracks(nTracks), prevResidual = null
   for (let f = 0; f < nAna; f++) {
     let analyzed = analyzeFrame(data, f * hop, win, N, half, thresh, prev, nTracks, maxDev, prevResidual)
-    frames[f] = analyzed
-    prev = analyzed.tracks
-    prevResidual = analyzed.residual
+    frames[f] = analyzed; prev = analyzed.tracks; prevResidual = analyzed.residual
   }
 
-  // Synthesis pass: resynthesize at new time rate
+  // Synthesis pass
   let outLen = Math.round(data.length * factor)
-  let out = new Float32Array(outLen)
-  let nrm = new Float32Array(outLen)
+  let out = new Float32Array(outLen), nrm = new Float32Array(outLen)
   let phi = new Float64Array(nTracks)
 
   for (let s = 0; ; s++) {
     let sPos = s * hop
     if (sPos + N > outLen) break
-
     let af = Math.min(s / factor, nAna - 1)
-    let f0 = Math.floor(af)
-    let f1 = Math.min(f0 + 1, nAna - 1)
-    let alpha = af - f0
-
-    let frame = synthFrame(frames[f0].tracks, frames[f1].tracks, frames[f0].residual, frames[f1].residual, alpha, nTracks, phi, half, N, hop, noiseState, residualMix)
+    let f0 = Math.floor(af), f1 = Math.min(f0 + 1, nAna - 1), alpha = af - f0
+    let fr = synthFrame(frames[f0].tracks, frames[f1].tracks, frames[f0].residual, frames[f1].residual, alpha, nTracks, phi, half, N, hop, noiseState, residualMix)
     for (let i = 0; i < N && sPos + i < outLen; i++) {
       let w2 = win[i] * win[i]
-      out[sPos + i] += frame[i] * w2
-      nrm[sPos + i] += w2
+      out[sPos + i] += fr[i] * w2; nrm[sPos + i] += w2
     }
   }
 
   normalize(out, nrm)
-
   return out
 }
 
@@ -239,121 +214,60 @@ function smsStream(opts = {}) {
   let win = hannWindow(N)
   let noiseState = createNoiseState()
 
-  let inBuf = new Float32Array(N * 4)
-  let inLen = 0
-  let outBuf = new Float32Array(N * 8)
-  let nrmBuf = new Float32Array(N * 8)
-  let sPos = 0, oRead = 0
-
+  let st = makeStreamBufs(N)
   let prevFrame = { tracks: emptyTracks(nTracks), residual: new Float64Array(half + 1) }
   let currFrame = null
   let phi = new Float64Array(nTracks)
-  let anaIdx = 0, synIdx = 0
-  let anaPos = 0 // samples consumed from inBuf
-
-  function growOut(need) {
-    if (need <= outBuf.length) return
-    let len = Math.max(need * 2, outBuf.length * 2)
-    let ob = new Float32Array(len), nb = new Float32Array(len)
-    ob.set(outBuf); nb.set(nrmBuf)
-    outBuf = ob; nrmBuf = nb
-  }
+  let anaIdx = 0, synIdx = 0, anaPos = 0
 
   function emitSynth() {
-    if (anaIdx < 2) return // need at least 2 analysis frames
-
+    if (anaIdx < 2) return
     while (synIdx / factor < anaIdx - 1) {
       let af = synIdx / factor
       let alpha = af - (anaIdx - 2)
-      growOut(sPos + N)
-
-      let frame = synthFrame(prevFrame.tracks, currFrame.tracks, prevFrame.residual, currFrame.residual, alpha, nTracks, phi, half, N, hop, noiseState, residualMix)
-      for (let i = 0; i < N && sPos + i < outBuf.length; i++) {
-        let w2 = win[i] * win[i]
-        outBuf[sPos + i] += frame[i] * w2
-        nrmBuf[sPos + i] += w2
+      st.growOut(st.pos + N)
+      let ob = st.ob, nb = st.nb, base = st.pos
+      let fr = synthFrame(prevFrame.tracks, currFrame.tracks, prevFrame.residual, currFrame.residual, alpha, nTracks, phi, half, N, hop, noiseState, residualMix)
+      for (let i = 0; i < N && base + i < ob.length; i++) {
+        let w2 = win[i] * win[i]; ob[base + i] += fr[i] * w2; nb[base + i] += w2
       }
-      sPos += hop
-      synIdx++
+      st.pos += hop; synIdx++
     }
   }
 
   function processInput() {
-    while (anaPos + N <= inLen) {
-      let analyzed = analyzeFrame(inBuf, anaPos, win, N, half, thresh,
-        anaIdx > 0 ? (currFrame?.tracks || prevFrame.tracks) : prevFrame.tracks, nTracks, maxDev,
-        currFrame?.residual || prevFrame.residual)
-
-      prevFrame = currFrame || prevFrame
-      currFrame = analyzed
-      anaIdx++
-      anaPos += hop
-
+    while (anaPos + N <= st.il) {
+      let analyzed = analyzeFrame(st.ib, anaPos, win, N, half, thresh,
+        anaIdx > 0 ? (currFrame?.tracks || prevFrame.tracks) : prevFrame.tracks,
+        nTracks, maxDev, currFrame?.residual || prevFrame.residual)
+      prevFrame = currFrame || prevFrame; currFrame = analyzed
+      anaIdx++; anaPos += hop
       emitSynth()
     }
-
-    // Compact input buffer
-    if (anaPos > N * 2) {
-      let trim = anaPos - N
-      inBuf.copyWithin(0, trim, inLen)
-      inLen -= trim
-      anaPos -= trim
-    }
-  }
-
-  function take(upTo) {
-    upTo = Math.min(upTo, sPos)
-    if (upTo <= oRead) return new Float32Array(0)
-    let len = Math.floor(upTo - oRead)
-    let out = new Float32Array(len)
-    for (let i = 0; i < len; i++) {
-      let j = oRead + i
-      out[i] = nrmBuf[j] > 1e-8 ? outBuf[j] / nrmBuf[j] : 0
-    }
-    oRead += len
-    if (oRead > N * 8) {
-      let shift = oRead
-      outBuf.copyWithin(0, shift)
-      nrmBuf.copyWithin(0, shift)
-      sPos -= shift
-      oRead = 0
-      outBuf.fill(0, sPos)
-      nrmBuf.fill(0, sPos)
-    }
-    return out
+    if (anaPos > N * 2) { let trim = anaPos - N; st.compactIn(trim); anaPos -= trim }
   }
 
   return {
     write(chunk) {
-      let need = inLen + chunk.length
-      if (need > inBuf.length) {
-        let nb = new Float32Array(Math.max(need * 2, inBuf.length * 2))
-        nb.set(inBuf.subarray(0, inLen))
-        inBuf = nb
-      }
-      inBuf.set(chunk, inLen)
-      inLen += chunk.length
+      st.appendIn(chunk)
       processInput()
-      return take(Math.max(0, sPos - N + hop))
+      return st.take(Math.max(0, st.pos - N + hop))
     },
     flush() {
-      // Emit remaining synthesis frames for the last analysis pair
       if (anaIdx >= 2 && currFrame) {
         while (synIdx / factor < anaIdx - 1 + 1) {
           let af = Math.min(synIdx / factor, anaIdx - 1)
           let alpha = Math.min(af - (anaIdx - 2), 1)
-          growOut(sPos + N)
-          let frame = synthFrame(prevFrame.tracks, currFrame.tracks, prevFrame.residual, currFrame.residual, alpha, nTracks, phi, half, N, hop, noiseState, residualMix)
-          for (let i = 0; i < N && sPos + i < outBuf.length; i++) {
-            let w2 = win[i] * win[i]
-            outBuf[sPos + i] += frame[i] * w2
-            nrmBuf[sPos + i] += w2
+          st.growOut(st.pos + N)
+          let ob = st.ob, nb = st.nb, base = st.pos
+          let fr = synthFrame(prevFrame.tracks, currFrame.tracks, prevFrame.residual, currFrame.residual, alpha, nTracks, phi, half, N, hop, noiseState, residualMix)
+          for (let i = 0; i < N && base + i < ob.length; i++) {
+            let w2 = win[i] * win[i]; ob[base + i] += fr[i] * w2; nb[base + i] += w2
           }
-          sPos += hop
-          synIdx++
+          st.pos += hop; synIdx++
         }
       }
-      return take(sPos)
+      return st.take(st.pos)
     }
   }
 }

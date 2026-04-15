@@ -15,7 +15,9 @@ export interface StftOpts extends StretchOpts {
   anaHop?: number
 }
 
-export interface TransientOpts extends StftOpts {
+export interface VocoderOpts extends StftOpts {
+  lock?: boolean
+  transients?: boolean
   transientThreshold?: number
 }
 
@@ -32,27 +34,12 @@ export interface PsolaOpts {
   maxFreq?: number
 }
 
-export interface PitchShiftDecision {
-  method: string
-  reason: string
-  ratio: number
-  semitones: number
-  content?: 'music' | 'voice' | 'speech' | 'tonal'
-  formant: boolean
-}
-
 export interface PitchShiftOpts {
   semitones?: number
   ratio?: number
-  formant?: boolean
-  content?: 'music' | 'voice' | 'speech' | 'tonal'
-  method?: ((data: Float32Array, opts?: any) => Float32Array)
-  onDecision?: (decision: PitchShiftDecision) => void
-  sampleRate?: number
-  minFreq?: number
-  maxFreq?: number
   frameSize?: number
   hopSize?: number
+  transientThreshold?: number
 }
 
 export interface FormantShiftOpts {
@@ -70,34 +57,14 @@ export interface SmsOpts extends StretchOpts {
   residualMix?: number
 }
 
-type StretchFn = {
-  (data: Float32Array, opts?: StretchOpts): Float32Array
-  (opts?: StretchOpts): Writer
-}
-
-export declare const ola: {
-  (data: Float32Array, opts?: StretchOpts): Float32Array
-  (opts?: StretchOpts): Writer
-}
-
 export declare const wsola: {
   (data: Float32Array, opts?: WsolaOpts): Float32Array
   (opts?: WsolaOpts): Writer
 }
 
 export declare const vocoder: {
-  (data: Float32Array, opts?: StftOpts): Float32Array
-  (opts?: StftOpts): Writer
-}
-
-export declare const phaseLock: {
-  (data: Float32Array, opts?: StftOpts): Float32Array
-  (opts?: StftOpts): Writer
-}
-
-export declare const transient: {
-  (data: Float32Array, opts?: TransientOpts): Float32Array
-  (opts?: TransientOpts): Writer
+  (data: Float32Array, opts?: VocoderOpts): Float32Array
+  (opts?: VocoderOpts): Writer
 }
 
 export declare const paulstretch: {

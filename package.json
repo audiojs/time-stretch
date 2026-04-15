@@ -3,15 +3,12 @@
   "version": "1.1.0",
   "type": "module",
   "types": "index.d.ts",
-  "description": "Time stretching and pitch shifting: OLA, WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch, PSOLA, SMS",
+  "description": "Time stretching and pitch shifting: WSOLA, phase vocoder, phase-locked vocoder, transient-aware, PaulStretch, PSOLA, SMS",
   "sideEffects": false,
   "exports": {
     ".": "./index.js",
-    "./ola": "./ola.js",
     "./wsola": "./wsola.js",
     "./vocoder": "./vocoder.js",
-    "./phase-lock": "./phase-lock.js",
-    "./transient": "./transient.js",
     "./paulstretch": "./paulstretch.js",
     "./psola": "./psola.js",
     "./pitch-shift": "./pitch-shift.js",
@@ -21,11 +18,8 @@
   },
   "files": [
     "index.js",
-    "ola.js",
     "wsola.js",
     "vocoder.js",
-    "phase-lock.js",
-    "transient.js",
     "paulstretch.js",
     "psola.js",
     "pitch-shift.js",
@@ -36,7 +30,9 @@
     "index.d.ts"
   ],
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "test:browser": "node test/browser.js",
+    "test:all": "npm test && npm run test:browser"
   },
   "repository": {
     "type": "git",
@@ -47,7 +43,6 @@
     "time-stretching",
     "pitch-shift",
     "pitch-shifting",
-    "ola",
     "wsola",
     "phase-vocoder",
     "phase-locking",
@@ -72,11 +67,11 @@
     "node": ">=18"
   },
   "dependencies": {
-    "fourier-transform": "^2.0.0",
-    "window-function": "^3.0.0"
+    "fourier-transform": "^2.0.0"
   },
   "devDependencies": {
     "audio-lena": "^3.0.0",
+    "playwright": "^1.59.1",
     "tst": "^9.4.0",
     "wavefont": "^3.5.0"
   }
