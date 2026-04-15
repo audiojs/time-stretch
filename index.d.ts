@@ -42,14 +42,6 @@ export interface PitchShiftOpts {
   transientThreshold?: number
 }
 
-export interface FormantShiftOpts {
-  semitones?: number
-  ratio?: number
-  envelopeWidth?: number
-  frameSize?: number
-  hopSize?: number
-}
-
 export interface SmsOpts extends StretchOpts {
   maxTracks?: number
   minMag?: number
@@ -79,12 +71,20 @@ export declare const psola: {
 
 export declare function pitchShift(data: Float32Array, opts?: PitchShiftOpts): Float32Array
 
-export declare const formantShift: {
-  (data: Float32Array, opts?: FormantShiftOpts): Float32Array
-  (opts?: FormantShiftOpts): Writer
-}
-
 export declare const sms: {
   (data: Float32Array, opts?: SmsOpts): Float32Array
   (opts?: SmsOpts): Writer
 }
+
+export interface QualityOpts {
+  frameSize?: number
+  hopSize?: number
+  trim?: number
+  floor?: number
+}
+
+export declare function lsd(a: Float32Array, b: Float32Array, opts?: QualityOpts): number
+export declare function spectralSim(a: Float32Array, b: Float32Array, opts?: QualityOpts): number
+export declare function goertzelEnergy(data: Float32Array, freq: number, sr: number): number
+export declare function chordBalance(data: Float32Array, freqs: number[], sr: number): number
+export declare function chordRetention(data: Float32Array, ref: Float32Array, freqs: number[], sr: number): number

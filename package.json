@@ -12,8 +12,8 @@
     "./paulstretch": "./paulstretch.js",
     "./psola": "./psola.js",
     "./pitch-shift": "./pitch-shift.js",
-    "./formant-shift": "./formant-shift.js",
     "./sms": "./sms.js",
+    "./quality": "./quality.js",
     "./util": "./util.js"
   },
   "files": [
@@ -23,9 +23,9 @@
     "paulstretch.js",
     "psola.js",
     "pitch-shift.js",
-    "formant-shift.js",
     "sms.js",
     "stft.js",
+    "quality.js",
     "util.js",
     "index.d.ts"
   ],

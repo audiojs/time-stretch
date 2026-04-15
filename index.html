@@ -196,7 +196,7 @@ h1{font:500 clamp(20px,2.5vw,26px)/1 var(--sans);letter-spacing:0.16em;text-tran
 }
 </script>
 <script type="module">
-import { wsola, vocoder, paulstretch, psola, formantShift, sms } from 'time-stretch'
+import { wsola, vocoder, paulstretch, psola, sms } from 'time-stretch'
 
 const SR = 44100
 const PI2 = Math.PI * 2
@@ -209,9 +209,6 @@ const ALGOS = [
   { name: 'vocoder+transients',  fn: vocoder,     tag: 'spectral', opts: fi => ({ factor: FACTORS[fi], transients: true }) },
   { name: 'paulstretch',         fn: paulstretch, tag: 'spectral', stretchOnly: true },
   { name: 'psola',               fn: psola,       tag: 'pitch-sync', needsSR: true },
-  { name: 'formantShift',        fn: formantShift,tag: 'formant',
-    labels: ['−5 st', '0 st', '+5 st'],
-    opts: fi => ({ semitones: [-5, 0, 5][fi] }) },
   { name: 'sms',                 fn: sms,         tag: 'sinusoidal' },
 ]
 

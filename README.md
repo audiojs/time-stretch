@@ -11,7 +11,8 @@ Time stretching and pitch shifting.
 | [vocoder `{ transients }`](#vocoder) | freq | ★★★★★ | medium | music with percussion |
 | [paulstretch](#paulstretch) | freq | — | medium | extreme stretch (ambient, drones) |
 | [sms](#sms) | sinusoidal | ★★★★ | high | harmonic / tonal material |
-| [formantShift](#formantshift) | freq | ★★★★ | medium | voice pitch shift |
+
+For voice pitch shift with formant preservation, use the `pitch-shift` package.
 
 
 ## Usage
@@ -187,31 +188,7 @@ pitchShift(data, { ratio: 1.5 })      // direct ratio
 | `transientThreshold` | `1.5` | Transient sensitivity |
 
 **Use when:** Pitch correction, harmonizing, creative effects.<br>
-**Not for:** Voice without formant preservation — will sound chipmunk/giant. Use [formantShift](#formantshift) instead. For content-aware algorithm selection (voice → psola, tonal → sms) call those functions directly.
-
-
-### `formantShift`
-
-Pitch shift with spectral envelope preservation. Separates fine harmonic structure from the formant envelope, shifts harmonics by the pitch ratio, then reapplies the original envelope. Prevents the chipmunk/giant effect on voice.
-
-```js
-import { formantShift } from 'time-stretch'
-
-formantShift(data, { semitones: 7 })
-formantShift(data, { semitones: -12 })
-formantShift(data, { ratio: 1.5 })
-```
-
-| Param | Default | |
-|---|---|---|
-| `semitones` | `0` | Pitch shift in semitones |
-| `ratio` | from semitones | Direct frequency ratio |
-| `envelopeWidth` | `N/64` | Smoothing width in bins (larger = smoother envelope) |
-| `frameSize` | `2048` | FFT frame size |
-| `hopSize` | `frameSize/4` | Hop size |
-
-**Use when:** Voice pitch shifting, vocal harmonizing, gender transformation.<br>
-**Not for:** Extreme shifts (>1 octave) — quality degrades. For instruments, regular `pitchShift` may be cleaner.
+**Not for:** Voice without formant preservation — will sound chipmunk/giant. Use the `pitch-shift` package instead. For content-aware algorithm selection (voice → psola, tonal → sms) call those functions directly.
 
 
 
@@ -241,7 +218,6 @@ vocoder({ factor, lock, transients, transientThreshold })
 paulstretch({ factor })
 psola({ factor, sampleRate, minFreq, maxFreq })
 sms({ factor, maxTracks, minMag, freqDev })
-formantShift({ semitones, ratio, envelopeWidth })
 ```
 
 ### One-shot buffer

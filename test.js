@@ -1,5 +1,5 @@
 import test, { almost, ok, is } from 'tst'
-import { wsola, vocoder, paulstretch, psola, pitchShift, formantShift, sms } from './index.js'
+import { wsola, vocoder, paulstretch, psola, pitchShift, sms, lsd, chordBalance, chordRetention } from './index.js'
 
 // Compatibility aliases using merged API
 const ola = (d, o) => d instanceof Float32Array
@@ -339,117 +339,6 @@ testExtreme('psola', psola, 0.1, 100)
 testExtreme('psola', psola, 10, 100000)
 testExtreme('paulstretch', paulstretch, 100, 1000000)
 
-// --- Formant pitch shift ---
-test('formantShift — 0 semitones returns copy', () => {
-  let data = sine(440, 8192, fs)
-  let out = formantShift(data, { semitones: 0 })
-  is(out.length, data.length)
-  almost(rms(out), rms(data), 0.01)
-})
-
-test('formantShift — preserves length', () => {
-  let data = sine(440, 8192, fs)
-  let out = formantShift(data, { semitones: 5 })
-  is(out.length, data.length)
-  ok(rms(out) > 0.1, 'has signal')
-})
-
-test('formantShift — +12 semitones doubles frequency', () => {
-  let data = sine(220, 16384, fs)
-  let out = formantShift(data, { semitones: 12 })
-  let freq = peakFreq(out, fs)
-  almost(freq, 440, 440 * 0.15, 'octave up')
-})
-
-test('formantShift — -12 semitones halves frequency', () => {
-  let data = sine(440, 16384, fs)
-  let out = formantShift(data, { semitones: -12 })
-  let freq = peakFreq(out, fs)
-  almost(freq, 220, 220 * 0.15, 'octave down')
-})
-
-test('formantShift — negative semitones', () => {
-  let data = sine(440, 8192, fs)
-  let out = formantShift(data, { semitones: -3 })
-  is(out.length, data.length)
-  ok(rms(out) > 0.1, 'has signal')
-})
-
-test('formantShift — ratio parameter', () => {
-  let data = sine(440, 8192, fs)
-  let out = formantShift(data, { ratio: 1.5 })
-  is(out.length, data.length)
-  ok(rms(out) > 0.1, 'has signal')
-})
-
-test('formantShift — semitones 5 shifts pitch', () => {
-  let data = sine(440, 8192, fs)
-  let out = formantShift(data, { semitones: 5 })
-  is(out.length, data.length)
-  ok(rms(out) > 0.1, 'has signal')
-})
-
-// --- Formant shift streaming ---
-test('formantShift writer — matches batch output', () => {
-  let data = sine(440, 16384, fs)
-  let batch = formantShift(data, { semitones: 5 })
-  let batchRms = rms(batch)
-
-  let write = formantShift({ semitones: 5 })
-  let chunks = []
-  for (let i = 0; i < data.length; i += 4096) {
-    let chunk = data.subarray(i, Math.min(i + 4096, data.length))
-    let out = write(chunk)
-    if (out.length) chunks.push(out)
-  }
-  let tail = write()
-  if (tail.length) chunks.push(tail)
-
-  let total = chunks.reduce((s, c) => s + c.length, 0)
-  ok(total > 0, 'produces output')
-  almost(total, batch.length, batch.length * 0.15, 'similar length')
-
-  let assembled = new Float32Array(total)
-  let off = 0
-  for (let c of chunks) { assembled.set(c, off); off += c.length }
-  let streamRms = rms(assembled)
-  ok(streamRms > 0.05, 'has signal')
-  almost(streamRms, batchRms, batchRms * 0.5, 'similar energy')
-})
-
-test('formantShift writer — handles small chunks', () => {
-  let data = sine(440, 8192, fs)
-  let write = formantShift({ semitones: 5 })
-  let chunks = []
-  for (let i = 0; i < data.length; i += 512) {
-    let out = write(data.subarray(i, Math.min(i + 512, data.length)))
-    if (out.length) chunks.push(out)
-  }
-  let tail = write()
-  if (tail.length) chunks.push(tail)
-  let total = chunks.reduce((s, c) => s + c.length, 0)
-  ok(total > 0, 'produces output from small chunks')
-})
-
-test('formantShift writer — silence stays silent', () => {
-  let data = new Float32Array(8192)
-  let write = formantShift({ semitones: 5 })
-  let chunks = []
-  for (let i = 0; i < data.length; i += 4096) {
-    let out = write(data.subarray(i, i + 4096))
-    if (out.length) chunks.push(out)
-  }
-  let tail = write()
-  if (tail.length) chunks.push(tail)
-  let total = chunks.reduce((s, c) => s + c.length, 0)
-  if (total > 0) {
-    let assembled = new Float32Array(total)
-    let off = 0
-    for (let c of chunks) { assembled.set(c, off); off += c.length }
-    almost(rms(assembled), 0, 0.001, 'silence preserved')
-  }
-})
-
 // --- Multi-channel (stereo) ---
 // All algorithms process mono Float32Array. Stereo is handled by splitting channels.
 // These tests verify the split→process→recombine pattern works correctly.
@@ -551,3 +440,127 @@ test('phaseLock — spectral purity on sine', () => {
   let freq = peakFreq(out.slice(trim, out.length - trim), fs)
   almost(freq, 440, 22, 'frequency drift < 5%')
 })
+
+// --- Spectral-quality regression (LSD vs. regenerated ground truth) ---
+// For parametric signals, the "ideal" stretched output is just the generator
+// evaluated at the new duration. LSD < 1.5 dB = transparent, < 3 good, > 5 poor.
+
+function chordSig(dur) {
+  let freqs = [261.6, 329.6, 392.0]
+  let n = Math.round(dur * fs), d = new Float32Array(n)
+  let a = 0.72 / freqs.length
+  for (let i = 0; i < n; i++) for (let f of freqs) d[i] += Math.sin(2 * Math.PI * f * i / fs) * a
+  return d
+}
+
+function sweepSig(f0, f1, dur) {
+  let n = Math.round(dur * fs), d = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    let t = i / fs, f = f0 + (f1 - f0) * t / dur
+    d[i] = Math.sin(2 * Math.PI * f * t) * 0.72
+  }
+  return d
+}
+
+function vowelSig(freq, dur) {
+  let n = Math.round(dur * fs), d = new Float32Array(n)
+  let formants = [700, 1200, 2500], bw = [80, 120, 160]
+  for (let h = 1; h <= 30; h++) {
+    let hf = freq * h
+    if (hf > fs / 2) break
+    let amp = 0
+    for (let fi = 0; fi < 3; fi++) {
+      let df = hf - formants[fi]
+      amp += Math.exp(-0.5 * (df / bw[fi]) ** 2)
+    }
+    amp = amp * 0.3 / h
+    for (let i = 0; i < n; i++) d[i] += Math.sin(2 * Math.PI * hf * i / fs) * amp
+  }
+  return d
+}
+
+function sineSig(freq, dur) {
+  let n = Math.round(dur * fs), d = new Float32Array(n)
+  for (let i = 0; i < n; i++) d[i] = Math.sin(2 * Math.PI * freq * i / fs) * 0.8
+  return d
+}
+
+// Transparent stretch: algo output should nearly match regenerated ground truth.
+let qualityCases = [
+  // [name, fn, sigName, gen, factor, maxLSD]
+  ['phaseLock', phaseLock, 'sine',   f => sineSig(440, 0.5 * f),                 0.5, 1.0],
+  ['phaseLock', phaseLock, 'sine',   f => sineSig(440, 0.5 * f),                 2.0, 1.0],
+  ['phaseLock', phaseLock, 'chord',  f => chordSig(0.5 * f),                     0.5, 1.0],
+  ['phaseLock', phaseLock, 'chord',  f => chordSig(0.5 * f),                     1.5, 1.0],
+  ['phaseLock', phaseLock, 'chord',  f => chordSig(0.5 * f),                     2.0, 1.0],
+
+  ['vocoder',   vocoder,   'chord',  f => chordSig(0.5 * f),                     0.5, 1.5],
+  ['vocoder',   vocoder,   'chord',  f => chordSig(0.5 * f),                     2.0, 1.5],
+  ['vocoder',   vocoder,   'sweep',  f => sweepSig(200, 2000, 0.5 * f),          2.0, 4.0],
+
+  ['transient', transient, 'chord',  f => chordSig(0.5 * f),                     1.5, 2.0],
+
+  ['wsola',     wsola,     'sine',   f => sineSig(440, 0.5 * f),                 2.0, 1.0],
+  ['wsola',     wsola,     'chord',  f => chordSig(0.5 * f),                     2.0, 2.0],
+  ['wsola',     wsola,     'vowel',  f => vowelSig(150, 0.5 * f),                2.0, 2.0],
+
+  ['psola',     psola,     'sine',   f => sineSig(440, 0.5 * f),                 1.5, 2.0],
+  ['psola',     psola,     'vowel',  f => vowelSig(150, 0.5 * f),                1.5, 2.0],
+]
+
+for (let [name, fn, sigName, gen, factor, maxLSD] of qualityCases) {
+  test(`${name} — LSD on ${sigName} @ ${factor}× < ${maxLSD} dB`, () => {
+    let src = gen(1)
+    let truth = gen(factor)
+    let out = fn(src, { factor })
+    let score = lsd(out, truth)
+    ok(score < maxLSD, `LSD=${score.toFixed(2)} dB (limit ${maxLSD})`)
+  })
+}
+
+// PSOLA falls through to WSOLA on polyphonic content (voiced threshold 0.72
+// rejects chords whose autocorrelation peaks ~0.58). Verify reasonable quality.
+test('psola — chord falls through to wsola (LSD < 2 dB)', () => {
+  let src = chordSig(0.5)
+  let truth = chordSig(1.0)
+  let out = psola(src, { factor: 2 })
+  let score = lsd(out, truth)
+  ok(score < 2, `LSD=${score.toFixed(2)} dB (limit 2)`)
+})
+
+test('lsd — identity returns 0', () => {
+  let a = chordSig(0.5)
+  almost(lsd(a, a), 0, 0.001)
+})
+
+test('lsd — non-matching signals return large value', () => {
+  let a = sineSig(440, 0.5)
+  let b = sineSig(880, 0.5)
+  ok(lsd(a, b) > 5, 'different pitches = high LSD')
+})
+
+// --- Chord partial balance & retention (Goertzel-based) ---
+// Measures per-partial energy preservation on a C major chord.
+// Vocoder with lock should be near-perfect; time-domain methods are weaker.
+let chordFreqs = [261.6, 329.6, 392.0]
+let chordBalanceCases = [
+  // [name, fn, opts, minBalance, minRetention]
+  ['vocoder lock 0.5×', vocoder, { factor: 0.5, lock: true }, 0.9, 0.9],
+  ['vocoder lock 2.0×', vocoder, { factor: 2.0, lock: true }, 0.9, 0.9],
+  ['wsola 0.5×', wsola, { factor: 0.5 }, 0.03, 0.1],
+  ['wsola 2.0×', wsola, { factor: 2.0 }, 0.1, 0.05],
+  ['psola 0.5×', psola, { factor: 0.5 }, 0.03, 0.1],
+  ['psola 2.0×', psola, { factor: 2.0 }, 0.1, 0.05],
+]
+
+for (let [name, fn, opts, minBal, minRet] of chordBalanceCases) {
+  test(`chord balance — ${name}`, () => {
+    let src = chordSig(1.0)
+    let ref = chordSig(1.0 * opts.factor)
+    let out = fn(src, opts)
+    let bal = chordBalance(out, chordFreqs, fs)
+    let ret = chordRetention(out, ref, chordFreqs, fs)
+    ok(bal >= minBal, `balance=${bal.toFixed(3)} (min ${minBal})`)
+    ok(ret >= minRet, `retention=${ret.toFixed(3)} (min ${minRet})`)
+  })
+}

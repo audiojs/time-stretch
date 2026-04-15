@@ -4,7 +4,11 @@
  *
  * Usage: node compare.js
  */
-import { ola, wsola, vocoder, phaseLock, transient, paulstretch, psola, sms } from '../index.js'
+import { wsola, vocoder, paulstretch, psola, sms, lsd } from '../index.js'
+
+const ola = (d, o) => wsola(d, { ...(o || {}), frameSize: (o && o.frameSize) || 2048, delta: 0 })
+const phaseLock = (d, o) => vocoder(d, { ...(o || {}), lock: true })
+const transient = (d, o) => vocoder(d, { ...(o || {}), transients: true })
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
@@ -92,12 +96,13 @@ function sweep(f0, f1, dur) {
   return d
 }
 
-function impulse(dur, interval) {
+function impulse(dur, interval, scale = 1) {
   let n = Math.round(dur * fs)
   let d = new Float32Array(n)
   let gap = Math.max(1, Math.round(interval * fs))
+  let width = Math.max(4, Math.round(72 * scale))
   for (let i = 0; i < n; i += gap) {
-    for (let j = 0; j < 72 && i + j < n; j++) d[i + j] = (1 - j / 72) * (j % 2 ? -0.92 : 0.92)
+    for (let j = 0; j < width && i + j < n; j++) d[i + j] = (1 - j / width) * (j % 2 ? -0.92 : 0.92)
   }
   return d
 }
@@ -146,7 +151,7 @@ function addToneBurst(data, start, dur, partials) {
   }
 }
 
-function latinPercussion(dur, bpm = 104) {
+function latinPercussion(dur, bpm = 104, scale = 1) {
   let n = Math.round(dur * fs)
   let out = new Float32Array(n)
   let rand = createRandom(0x5a17c0de)
@@ -159,15 +164,15 @@ function latinPercussion(dur, bpm = 104) {
     if (t >= dur) break
 
     if ([0, 3, 6, 10, 12, 15].includes(index % 16)) {
-      addToneBurst(out, t, 0.11, [[180, 0.55], [360, 0.18], [540, 0.08]])
-      addNoiseBurst(out, t, 0.03, 0.08, rand, 0.5)
+      addToneBurst(out, t, 0.11 * scale, [[180, 0.55], [360, 0.18], [540, 0.08]])
+      addNoiseBurst(out, t, 0.03 * scale, 0.08, rand, 0.5)
     }
     if ([2, 7, 11, 14].includes(index % 16)) {
-      addToneBurst(out, t, 0.05, [[1400, 0.25], [2600, 0.14]])
-      addNoiseBurst(out, t, 0.014, 0.2, rand, 0.1)
+      addToneBurst(out, t, 0.05 * scale, [[1400, 0.25], [2600, 0.14]])
+      addNoiseBurst(out, t, 0.014 * scale, 0.2, rand, 0.1)
     }
-    if (index % 2 === 1) addNoiseBurst(out, t, 0.028, 0.065, rand, 0.15)
-    if ([0, 8].includes(index % 16)) addToneBurst(out, t, 0.14, [[95, 0.55], [190, 0.12]])
+    if (index % 2 === 1) addNoiseBurst(out, t, 0.028 * scale, 0.065, rand, 0.15)
+    if ([0, 8].includes(index % 16)) addToneBurst(out, t, 0.14 * scale, [[95, 0.55], [190, 0.12]])
   }
 
   return normalizePeak(out, 0.84)
@@ -300,13 +305,52 @@ function runExternalReference(kind, data, factor, opts = {}) {
 
 let lena = decodeLena()
 let signals = [
-  { name: 'Interview excerpt (Lena speech)', kind: 'voice', data: clip(lena, 0.18, 1.05), minFreq: 80, maxFreq: 320, external: ['ola', 'wsola', 'phasevocoder', 'tdpsola', 'rubberband', 'soundtouch'] },
-  { name: 'Latin percussion groove', kind: 'percussion', data: latinPercussion(1.0), external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch'] },
-  { name: 'Sine 440Hz', kind: 'tonal', data: sine(440, 0.42), external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch'] },
-  { name: 'Chord (C maj)', kind: 'polyphonic', data: chord([261.6, 329.6, 392.0], 0.42), external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch'] },
-  { name: 'Sweep 200–2kHz', kind: 'sweep', data: sweep(200, 2000, 0.42), external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch'] },
-  { name: 'Impulse train', kind: 'transient', data: impulse(0.42, 0.14), external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch'] },
-  { name: 'Vowel "ah" 150Hz', kind: 'voice-like', data: vowel(150, 0.5), minFreq: 80, maxFreq: 320, external: ['ola', 'wsola', 'phasevocoder', 'tdpsola', 'rubberband', 'soundtouch'] },
+  {
+    name: 'Interview excerpt (Lena speech)', kind: 'voice',
+    data: clip(lena, 0.18, 1.05),
+    minFreq: 80, maxFreq: 320,
+    external: ['ola', 'wsola', 'phasevocoder', 'tdpsola', 'rubberband', 'soundtouch'],
+    // no gen — real audio. Baseline is rubberband reference.
+    baselineRef: 'rubberband'
+  },
+  {
+    name: 'Latin percussion groove', kind: 'percussion',
+    data: latinPercussion(1.0),
+    // stochastic noise components — regenerated baseline diverges, use rubberband
+    baselineRef: 'rubberband',
+    external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch']
+  },
+  {
+    name: 'Sine 440Hz', kind: 'tonal',
+    data: sine(440, 0.42),
+    gen: f => sine(440, 0.42 * f),
+    external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch']
+  },
+  {
+    name: 'Chord (C maj)', kind: 'polyphonic',
+    data: chord([261.6, 329.6, 392.0], 0.42),
+    gen: f => chord([261.6, 329.6, 392.0], 0.42 * f),
+    external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch']
+  },
+  {
+    name: 'Sweep 200–2kHz', kind: 'sweep',
+    data: sweep(200, 2000, 0.42),
+    gen: f => sweep(200, 2000, 0.42 * f),
+    external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch']
+  },
+  {
+    name: 'Impulse train', kind: 'transient',
+    data: impulse(0.42, 0.14),
+    gen: f => impulse(0.42 * f, 0.14 * f, f),
+    external: ['ola', 'wsola', 'phasevocoder', 'rubberband', 'soundtouch']
+  },
+  {
+    name: 'Vowel "ah" 150Hz', kind: 'voice-like',
+    data: vowel(150, 0.5),
+    gen: f => vowel(150, 0.5 * f),
+    minFreq: 80, maxFreq: 320,
+    external: ['ola', 'wsola', 'phasevocoder', 'tdpsola', 'rubberband', 'soundtouch']
+  },
 ]
 
 let internalRows = [
@@ -337,15 +381,33 @@ let pairRefs = {
 
 let factors = [0.5, 1.5, 2]
 let standaloneRefs = ['rubberband', 'soundtouch']
+let includeExternal = !process.env.FAST
 
 function rowForAudio(name, data, ms, note, source) {
   return { name, key: storeAudio(data), ms: Number.isFinite(ms) ? Math.round(ms) : null, len: data.length, note, source }
 }
 
+function scoreRow(row, data, baseline) {
+  if (row.error || !baseline) return row
+  try { row.lsd = lsd(data, baseline) }
+  catch {}
+  return row
+}
+
+function qualityTag(db) {
+  if (db == null || !Number.isFinite(db)) return ''
+  if (db < 1.5) return 'q-excellent'
+  if (db < 3) return 'q-good'
+  if (db < 5) return 'q-fair'
+  return 'q-poor'
+}
+
 function renderRow(row, originalLen) {
   if (row.error) return `<div class="algo-row error-row"><span class="name">${row.name}</span><span class="badge ${row.source}">${row.source}</span><span class="error">${row.error}</span></div>`
   let ratio = (row.len / originalLen).toFixed(2)
-  return `<div class="algo-row ${row.source}"><span class="name">${row.name}</span><span class="badge ${row.source}">${row.source}</span><button class="play" data-key="${row.key}">▶</button><canvas class="wave" data-key="${row.key}"></canvas><span class="meta">${row.ms}ms</span><span class="meta">${ratio}× len</span>${row.note ? `<span class="note">${row.note}</span>` : ''}</div>`
+  let lsdText = row.lsd != null && Number.isFinite(row.lsd) ? `${row.lsd.toFixed(1)} dB` : ''
+  let lsdClass = qualityTag(row.lsd)
+  return `<div class="algo-row ${row.source}"><span class="name">${row.name}</span><span class="badge ${row.source}">${row.source}</span><button class="play" data-key="${row.key}">▶</button><canvas class="wave" data-key="${row.key}"></canvas><span class="meta">${row.ms}ms</span><span class="meta">${ratio}× len</span><span class="meta lsd ${lsdClass}">${lsdText}</span>${row.note ? `<span class="note">${row.note}</span>` : ''}</div>`
 }
 
 console.log('Generating comparison samples...')
@@ -355,7 +417,26 @@ for (let signal of signals) {
   let original = rowForAudio('original', signal.data, 0, signal.kind, 'original')
 
   for (let factor of factors) {
+    // Ground-truth baseline: regenerate for synthetic, external reference for real audio.
+    let baselineData = null
+    let baselineRow = null
+    if (signal.gen) {
+      baselineData = signal.gen(factor)
+      baselineRow = rowForAudio('baseline', baselineData, 0, 'regenerated ground truth', 'baseline')
+    }
+    else if (signal.baselineRef) {
+      try {
+        let ref = runExternalReference(signal.baselineRef, signal.data, factor, signal)
+        baselineData = ref.data
+        baselineRow = rowForAudio('baseline', baselineData, ref.ms, `${externalRows[signal.baselineRef].name} (reference)`, 'baseline')
+      }
+      catch (error) {
+        console.log(`  baseline ${signal.baselineRef} failed: ${error.message}`)
+      }
+    }
+
     let rows = [original]
+    if (baselineRow) rows.push(baselineRow)
 
     for (let algo of internalRows) {
       try {
@@ -364,32 +445,41 @@ for (let signal of signals) {
         let t0 = performance.now()
         let out = algo.fn(signal.data, opts)
         let note = algo.name === 'psola' && !signal.external.includes('tdpsola') ? 'speech-oriented local path' : ''
-        rows.push(rowForAudio(algo.name, out, performance.now() - t0, note, 'internal'))
+        let row = rowForAudio(algo.name, out, performance.now() - t0, note, 'internal')
+        scoreRow(row, out, baselineData)
+        rows.push(row)
       }
       catch (error) {
         rows.push({ name: algo.name, error: error.message, source: 'internal' })
       }
 
+      if (!includeExternal) continue
       let refKind = pairRefs[algo.name]
       if (!refKind || !signal.external.includes(refKind)) continue
 
       try {
         let ref = runExternalReference(refKind, signal.data, factor, signal)
-        rows.push(rowForAudio(externalRows[refKind].name, ref.data, ref.ms, ref.note || externalRows[refKind].note, 'external'))
+        let row = rowForAudio(externalRows[refKind].name, ref.data, ref.ms, ref.note || externalRows[refKind].note, 'external')
+        scoreRow(row, ref.data, baselineData)
+        rows.push(row)
       }
       catch (error) {
         rows.push({ name: externalRows[refKind].name, error: error.message, source: 'external' })
       }
     }
 
-    for (let refKind of standaloneRefs) {
-      if (!signal.external.includes(refKind)) continue
-      try {
-        let ref = runExternalReference(refKind, signal.data, factor, signal)
-        rows.push(rowForAudio(externalRows[refKind].name, ref.data, ref.ms, ref.note || externalRows[refKind].note, 'external'))
-      }
-      catch (error) {
-        rows.push({ name: externalRows[refKind].name, error: error.message, source: 'external' })
+    if (includeExternal) {
+      for (let refKind of standaloneRefs) {
+        if (!signal.external.includes(refKind)) continue
+        try {
+          let ref = runExternalReference(refKind, signal.data, factor, signal)
+          let row = rowForAudio(externalRows[refKind].name, ref.data, ref.ms, ref.note || externalRows[refKind].note, 'external')
+          scoreRow(row, ref.data, baselineData)
+          rows.push(row)
+        }
+        catch (error) {
+          rows.push({ name: externalRows[refKind].name, error: error.message, source: 'external' })
+        }
       }
     }
 
@@ -426,8 +516,13 @@ let html = `<!DOCTYPE html>
   --internal: #dd8d54;
   --external: #79a6c7;
   --original: #8dbb73;
+  --baseline: #e4d07d;
   --error: #d67d7d;
   --wave: #c9b27f;
+  --q-excellent: #8dbb73;
+  --q-good: #c9b27f;
+  --q-fair: #dd8d54;
+  --q-poor: #d67d7d;
 }
 body {
   font: 14px/1.5 Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
@@ -449,17 +544,24 @@ h1 small { font-size: 14px; color: var(--muted); font-weight: 400; }
 .signal-header { padding: 14px 16px; background: var(--panel-2); border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .signal-header h2 { font-size: 16px; }
 .signal-meta { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; }
-.algo-row { padding: 8px 16px; display: grid; grid-template-columns: 118px 72px 44px minmax(180px, 1fr) 70px 76px minmax(160px, 220px); gap: 12px; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.algo-row { padding: 8px 16px; display: grid; grid-template-columns: 118px 72px 44px minmax(180px, 1fr) 64px 64px 72px minmax(140px, 200px); gap: 12px; align-items: center; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .algo-row:last-child { border-bottom: 0; }
 .algo-row.internal { background: rgba(221, 141, 84, 0.035); }
 .algo-row.external { background: rgba(121, 166, 199, 0.045); }
 .algo-row.original { background: rgba(141, 187, 115, 0.04); }
+.algo-row.baseline { background: rgba(228, 208, 125, 0.07); }
 .algo-row:hover { background-color: rgba(255,255,255,0.045); }
 .name { font-weight: 600; }
 .badge { justify-self: start; border-radius: 999px; padding: 3px 8px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid transparent; }
 .badge.internal { color: var(--internal); border-color: rgba(221, 141, 84, 0.35); }
 .badge.external { color: var(--external); border-color: rgba(121, 166, 199, 0.35); }
 .badge.original { color: var(--original); border-color: rgba(141, 187, 115, 0.35); }
+.badge.baseline { color: var(--baseline); border-color: rgba(228, 208, 125, 0.4); }
+.lsd { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }
+.lsd.q-excellent { color: var(--q-excellent); }
+.lsd.q-good { color: var(--q-good); }
+.lsd.q-fair { color: var(--q-fair); }
+.lsd.q-poor { color: var(--q-poor); }
 button.play { background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 0; font-size: 12px; cursor: pointer; }
 button.play:hover, button.play.playing { border-color: var(--wave); color: var(--wave); }
 canvas.wave { height: 30px; width: 100%; background: rgba(0, 0, 0, 0.18); border-radius: 4px; }
@@ -475,12 +577,12 @@ canvas.wave { height: 30px; width: 100%; background: rgba(0, 0, 0, 0.18); border
 </head>
 <body>
 <h1>time-stretch <small>internal vs external references</small></h1>
-<p class="intro">Each block shows the same source signal stretched by the local implementation and, where available, an external reference implementation. Internal timings are direct JavaScript call times. Python-backed references show in-library processing time. Rubber Band and SoundTouch rows show CLI wall time because those tools are invoked as external binaries. TD-PSOLA references apply only to speech-like material.</p>
+<p class="intro">Each block shows the same source signal stretched by the local implementation and, where available, an external reference. The <strong>baseline</strong> row is ground truth — regenerated analytically for synthetic signals, or taken from Rubber Band for real audio (Lena). The <strong>LSD</strong> column is frame-averaged log-spectral distance in dB against that baseline: lower is better. &lt;1.5 dB is transparent, 1.5–3 dB is good, 3–5 dB audible colouration, &gt;5 dB degraded.</p>
 <div class="legend">
-  <span class="chip">new sources: interview speech excerpt + Latin percussion groove</span>
-  <span class="chip">external refs: audiotsm OLA / WSOLA / phase vocoder</span>
-  <span class="chip">external refs: Praat TD-PSOLA via python-psola</span>
-  <span class="chip">external refs: Rubber Band R3 + SoundTouch</span>
+  <span class="chip">baseline: regenerated ground truth (synthetic) / Rubber Band (Lena)</span>
+  <span class="chip">LSD &lt;1.5 dB transparent · &lt;3 good · &lt;5 fair · ≥5 poor</span>
+  <span class="chip">external refs: audiotsm, Praat TD-PSOLA, Rubber Band R3, SoundTouch</span>
+  <span class="chip">FAST=1 skips python/CLI externals</span>
 </div>
 `
 

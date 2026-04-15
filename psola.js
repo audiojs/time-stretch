@@ -214,7 +214,7 @@ function pitchContour(data, minP, maxP, defP, opts = {}) {
       isVoiced = cached.voiced
     } else {
       ({ period, score } = detectPeriod(data, center - maxP, minP, maxP, data.length, prevPeriod))
-      isVoiced = score >= 0.42 && period > 0
+      isVoiced = score >= 0.72 && period > 0
     }
     periods.push(isVoiced ? period : prevPeriod)
     scores.push(score)
