@@ -33,6 +33,8 @@ write(block2)
 write()                                                           // → remaining samples
 ```
 
+> Mono `Float32Array` in/out. For stereo, process channels independently. Output sizes may be variable — small or empty early chunks are normal in streaming.
+
 ## Time domain
 
 ### `wsola`
@@ -189,58 +191,6 @@ pitchShift(data, { ratio: 1.5 })      // direct ratio
 
 **Use when:** Pitch correction, harmonizing, creative effects.<br>
 **Not for:** Voice without formant preservation — will sound chipmunk/giant. Use the `pitch-shift` package instead. For content-aware algorithm selection (voice → psola, tonal → sms) call those functions directly.
-
-
-
-## Integration
-
-### Streaming
-
-All algorithms support block-by-block streaming. Call with options only (no data) to get a writer:
-
-```js
-let write = vocoder({ factor: 1.5, transients: true })
-
-// in your audio callback:
-let output = write(inputBlock)    // → Float32Array (may be empty while buffering)
-
-// when done:
-let tail = write()                // → remaining buffered samples
-```
-
-- Feed ordered `Float32Array` chunks. Output sizes are variable — small or empty early chunks are normal.
-- Call `write()` exactly once at the end to flush.
-- Use one writer per channel for stereo or multichannel material.
-
-```js
-wsola({ factor })
-vocoder({ factor, lock, transients, transientThreshold })
-paulstretch({ factor })
-psola({ factor, sampleRate, minFreq, maxFreq })
-sms({ factor, maxTracks, minMag, freqDev })
-```
-
-### One-shot buffer
-
-```js
-import { vocoder } from 'time-stretch'
-
-let src = audioBuffer.getChannelData(0)
-let out = vocoder(new Float32Array(src), { factor: 1.25, transients: true })
-```
-
-### Stereo / multi-channel
-
-All algorithms process mono `Float32Array`. For stereo, split channels and process independently:
-
-```js
-let L = vocoder(left,  { factor: 2, transients: true })
-let R = vocoder(right, { factor: 2, transients: true })
-
-// Streaming:
-let wL = vocoder({ factor: 2, transients: true })
-let wR = vocoder({ factor: 2, transients: true })
-```
 
 
 
