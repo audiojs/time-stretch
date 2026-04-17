@@ -17,12 +17,14 @@ function detectPeriodRange(data, pos, minLag, maxLag, prevPeriod) {
 
   let corr = new Float64Array(maxLag + 2)
   let n = maxLag
+  // e1 = Σ data[pos+i]² — depends only on the analysis window, not lag. Hoist it out.
+  let e1 = 0
+  for (let i = 0; i < n; i++) { let a = data[pos + i]; e1 += a * a }
   for (let lag = minLag; lag <= maxLag; lag++) {
-    let sum = 0, e1 = 0, e2 = 0
+    let sum = 0, e2 = 0
     for (let i = 0; i < n; i++) {
-      let a = data[pos + i], b = data[pos + i + lag]
-      sum += a * b
-      e1 += a * a
+      let b = data[pos + i + lag]
+      sum += data[pos + i] * b
       e2 += b * b
     }
     let d = Math.sqrt(e1 * e2)
@@ -154,17 +156,18 @@ function smoothPeriods(periods, voiced, defP) {
   if (!periods.length) return periods
 
   let out = periods.slice()
+  let scratch = new Float64Array(5)
   for (let pass = 0; pass < 2; pass++) {
     let next = out.slice()
     for (let i = 0; i < out.length; i++) {
       if (!voiced[i]) continue
-      let win = []
+      let c = 0
       for (let k = Math.max(0, i - 2); k <= Math.min(out.length - 1, i + 2); k++) {
-        if (voiced[k]) win.push(out[k])
+        if (voiced[k]) scratch[c++] = out[k]
       }
-      if (win.length < 3) continue
-      win.sort((a, b) => a - b)
-      let med = win[Math.floor(win.length / 2)]
+      if (c < 3) continue
+      scratch.subarray(0, c).sort()
+      let med = scratch[c >> 1]
       next[i] = clamp(0.6 * out[i] + 0.4 * med, med * 0.75, med * 1.35)
     }
     out = next
@@ -204,6 +207,14 @@ function pitchContour(data, minP, maxP, defP, opts = {}) {
   let cacheState = { index: 0 }
   let segmentOffset = opts.segmentOffset || 0
 
+  // Early bailout check: after a warmup window, if voicing rate is very low the signal
+  // is likely polyphonic or noisy and the full contour scan is wasted work (the caller
+  // falls through to WSOLA anyway when voicedCount < 20%). Check every `checkInterval`
+  // frames; bail when fewer than 15% of frames are voiced after at least `warmup` frames.
+  let warmup = 16
+  let checkInterval = 8
+  let voicedCount = 0
+
   for (let center = start; center <= end; center += hop) {
     let absCenter = segmentOffset + center
     let cached = reuseContourSample(opts.contourCache, absCenter, hop, cacheState)
@@ -220,8 +231,16 @@ function pitchContour(data, minP, maxP, defP, opts = {}) {
     scores.push(score)
     voiced.push(isVoiced)
     positions.push(absCenter)
-    if (isVoiced) prevPeriod = period
+    if (isVoiced) { prevPeriod = period; voicedCount++ }
+
+    if (periods.length >= warmup && periods.length % checkInterval === 0) {
+      if (voicedCount < periods.length * 0.15) break
+    }
   }
+
+  // If voicing rate is below the 20% threshold that psolaBatchCore uses, skip the
+  // expensive smoothPeriods + marks work — the caller will fall through to WSOLA anyway.
+  if (voicedCount < Math.max(4, periods.length * 0.15)) return null
 
   return { start, hop, periods: smoothPeriods(periods, voiced, defP), scores, voiced, positions }
 }

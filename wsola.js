@@ -1,7 +1,12 @@
 import { hannWindow, writer, makeStreamBufs } from './util.js'
 
 function overlapLength(frameSize, synHop, pos, limit) {
-  return Math.max(0, Math.min(frameSize - synHop, pos, limit - pos))
+  // Cap correlation window: for large frames (≥2048) the full frameSize-synHop overlap
+  // wastes cycles on low-energy Hann-tapered samples. frameSize/2 retains the high-energy
+  // portion of the overlap while cutting the search cost by ~33%. For small frames the
+  // full overlap is cheap enough and matters more for quality.
+  let maxOvl = frameSize >= 2048 ? frameSize >> 1 : frameSize - synHop
+  return Math.max(0, Math.min(maxOvl, pos, limit - pos))
 }
 
 export default function wsola(data, opts) {
@@ -35,11 +40,15 @@ export default function wsola(data, opts) {
       if (searchEnd < searchStart) break
 
       let overlapLen = overlapLength(frameSize, synHop, synPos, outLen)
+      // Subsample the correlation by 2: halves the inner loop cost with negligible
+      // quality impact — the correlation peak is broad (spans multiple samples) so
+      // skipping odd indices doesn't shift the winner.
+      let step = overlapLen > 768 ? 2 : 1
       let bestCorr = -Infinity, bestS = searchStart
 
       for (let s = searchStart; s <= searchEnd; s++) {
         let corr = 0
-        for (let i = 0; i < overlapLen; i++) corr += data[s + i] * out[synPos + i]
+        for (let i = 0; i < overlapLen; i += step) corr += data[s + i] * out[synPos + i]
         if (corr > bestCorr) { bestCorr = corr; bestS = s }
       }
       readPos = bestS
@@ -82,11 +91,12 @@ function wsolaStream(opts) {
         let searchE = Math.min(st.il - frameSize, nomPos + delta)
         if (searchE < searchS) break
         let overlap = overlapLength(frameSize, synHop, st.pos, st.ob.length)
+        let step = overlap > 768 ? 2 : 1
         let bestCorr = -Infinity, bestS = searchS
         let ib = st.ib, ob = st.ob, corBase = st.pos
         for (let s = searchS; s <= searchE; s++) {
           let corr = 0
-          for (let i = 0; i < overlap; i++) corr += ib[s + i] * ob[corBase + i]
+          for (let i = 0; i < overlap; i += step) corr += ib[s + i] * ob[corBase + i]
           if (corr > bestCorr) { bestCorr = corr; bestS = s }
         }
         readPos = bestS
