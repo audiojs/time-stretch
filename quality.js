@@ -120,3 +120,66 @@ export function chordRetention(data, ref, freqs, sr) {
   let outE = freqs.reduce((s, f) => s + goertzelEnergy(data, f, sr), 0)
   return refE > 1e-10 ? outE / refE : 0
 }
+
+// Per-partial amplitude-modulation depth — captures hop-rate beating ("crumble")
+// that LSD misses. Slides a Hann-windowed complex demodulator (rotate to baseband,
+// integrate) at each frequency to extract a phase-stable envelope, then returns AC
+// RMS / DC mean. The Hann taper is essential: a bare integrator ripples at the bin-
+// straddle frequency for any non-integer-cycle window, masquerading as modulation.
+// 0 = stable, ~0.05 = transparent, ~0.1 = perceptible roughness, ~0.3+ = obvious
+// tremolo. Returns the worst (max) depth across the supplied freqs.
+export function modulationDepth(data, freqs, sr, opts = {}) {
+  let win = opts.envWindow || 2048
+  let hop = opts.envHop || 256
+  let trim = opts.trim ?? 0.1
+  let cut = Math.floor(data.length * trim)
+  let len = data.length - 2 * cut
+  if (len < win * 2) return 0
+  let frames = Math.floor((len - win) / hop) + 1
+  if (frames < 8) return 0
+
+  let hann = new Float64Array(win)
+  let hannSum = 0
+  for (let i = 0; i < win; i++) { hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (win - 1))); hannSum += hann[i] }
+
+  // Two-pass: first measure each partial's mean amplitude, then only score those
+  // above 5% of the loudest partial. Otherwise weak/absent partials (e.g. high
+  // harmonics suppressed by formant filtering) score huge spurious modulation
+  // from spectral-leakage noise.
+  let envs = freqs.map(() => new Float64Array(frames))
+  let means = new Float64Array(freqs.length)
+  for (let fi = 0; fi < freqs.length; fi++) {
+    let f = freqs[fi]
+    let w = 2 * Math.PI * f / sr
+    let env = envs[fi]
+    let mean = 0
+    for (let k = 0; k < frames; k++) {
+      let re = 0, im = 0, base = cut + k * hop
+      for (let i = 0; i < win; i++) {
+        let s = data[base + i] * hann[i]
+        let phase = w * i
+        re += s * Math.cos(phase)
+        im -= s * Math.sin(phase)
+      }
+      let mag = Math.sqrt(re * re + im * im) / hannSum
+      env[k] = mag
+      mean += mag
+    }
+    means[fi] = mean / frames
+  }
+
+  let maxMean = 0
+  for (let i = 0; i < means.length; i++) if (means[i] > maxMean) maxMean = means[i]
+  let floor = maxMean * 0.05
+
+  let worst = 0
+  for (let i = 0; i < freqs.length; i++) {
+    if (means[i] < floor) continue
+    let env = envs[i], mean = means[i]
+    let acVar = 0
+    for (let k = 0; k < frames; k++) { let d = env[k] - mean; acVar += d * d }
+    let depth = Math.sqrt(acVar / frames) / mean
+    if (depth > worst) worst = depth
+  }
+  return worst
+}

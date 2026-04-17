@@ -1,12 +1,16 @@
 import { hannWindow, writer, makeStreamBufs } from './util.js'
 
-function overlapLength(frameSize, synHop, pos, limit) {
-  // Cap correlation window: for large frames (≥2048) the full frameSize-synHop overlap
-  // wastes cycles on low-energy Hann-tapered samples. frameSize/2 retains the high-energy
-  // portion of the overlap while cutting the search cost by ~33%. For small frames the
-  // full overlap is cheap enough and matters more for quality.
-  let maxOvl = frameSize >= 2048 ? frameSize >> 1 : frameSize - synHop
-  return Math.max(0, Math.min(maxOvl, pos, limit - pos))
+// Canonical Verhelst-Roelands WSOLA: each grain's read position is chosen to maximize
+// cross-correlation with the *natural progression* of the previous grain through the
+// input — i.e. data[prevRead + synHop : ...]. Correlating against the synthesis output
+// (a sum of previous compromise grains) lets phase errors compound across grains and
+// causes hop-rate amplitude modulation ("crumble") on polyphonic content. The input
+// target is clean and gives the same result for monophonic signals at no extra cost.
+function corrLength(frameSize, synHop) {
+  // Overlap region. For large frames (≥2048) cap at frameSize/2 — the Hann taper
+  // makes outer samples low-energy so they barely shift the correlation peak,
+  // and halving the loop cuts search cost by ~33%.
+  return frameSize >= 2048 ? frameSize >> 1 : frameSize - synHop
 }
 
 export default function wsola(data, opts) {
@@ -15,7 +19,7 @@ export default function wsola(data, opts) {
   let factor = opts?.factor ?? 1
   if (factor === 1) return new Float32Array(data)
 
-  let frameSize = opts?.frameSize ?? 1024
+  let frameSize = opts?.frameSize ?? 2048
   let hopSize = opts?.hopSize ?? (frameSize >> 2)
   let delta = opts?.delta ?? (frameSize >> 2)
 
@@ -27,8 +31,10 @@ export default function wsola(data, opts) {
   let synHop = hopSize
   let anaHop = hopSize / factor
   let win = hannWindow(frameSize)
+  let corrLen = corrLength(frameSize, synHop)
 
   let anaPos = 0, synPos = 0
+  let prevReadPos = 0
 
   while (synPos + frameSize <= outLen) {
     let nomPos = Math.round(anaPos)
@@ -39,19 +45,18 @@ export default function wsola(data, opts) {
       let searchEnd = Math.min(inLen - frameSize, nomPos + delta)
       if (searchEnd < searchStart) break
 
-      let overlapLen = overlapLength(frameSize, synHop, synPos, outLen)
-      // Subsample the correlation by 2: halves the inner loop cost with negligible
-      // quality impact — the correlation peak is broad (spans multiple samples) so
-      // skipping odd indices doesn't shift the winner.
-      let step = overlapLen > 768 ? 2 : 1
-      let bestCorr = -Infinity, bestS = searchStart
-
-      for (let s = searchStart; s <= searchEnd; s++) {
-        let corr = 0
-        for (let i = 0; i < overlapLen; i += step) corr += data[s + i] * out[synPos + i]
-        if (corr > bestCorr) { bestCorr = corr; bestS = s }
+      let targetStart = prevReadPos + synHop
+      let L = Math.min(corrLen, inLen - targetStart, inLen - searchEnd)
+      if (L > 0) {
+        let step = L > 768 ? 2 : 1
+        let bestCorr = -Infinity, bestS = searchStart
+        for (let s = searchStart; s <= searchEnd; s++) {
+          let corr = 0
+          for (let i = 0; i < L; i += step) corr += data[s + i] * data[targetStart + i]
+          if (corr > bestCorr) { bestCorr = corr; bestS = s }
+        }
+        readPos = bestS
       }
-      readPos = bestS
     }
 
     if (readPos + frameSize > inLen) break
@@ -61,6 +66,7 @@ export default function wsola(data, opts) {
       norm[synPos + i] += win[i]
     }
 
+    prevReadPos = readPos
     anaPos += anaHop
     synPos += synHop
   }
@@ -71,15 +77,20 @@ export default function wsola(data, opts) {
 
 function wsolaStream(opts) {
   let factor = opts?.factor ?? 1
-  let frameSize = opts?.frameSize ?? 1024
+  let frameSize = opts?.frameSize ?? 2048
   let hopSize = opts?.hopSize ?? (frameSize >> 2)
   let delta = opts?.delta ?? (frameSize >> 2)
   let win = hannWindow(frameSize)
   let synHop = hopSize
   let anaHop = hopSize / factor
+  let corrLen = corrLength(frameSize, synHop)
 
   let st = makeStreamBufs(frameSize)
   let aPos = 0
+  // Track absolute position of last read so the natural-progression target
+  // survives input compaction (st.compactIn shifts ib).
+  let prevReadAbs = 0
+  let inOffset = 0  // absolute position of ib[0]
 
   function run() {
     while (Math.round(aPos) + frameSize <= st.il) {
@@ -90,16 +101,19 @@ function wsolaStream(opts) {
         let searchS = Math.max(0, nomPos - delta)
         let searchE = Math.min(st.il - frameSize, nomPos + delta)
         if (searchE < searchS) break
-        let overlap = overlapLength(frameSize, synHop, st.pos, st.ob.length)
-        let step = overlap > 768 ? 2 : 1
-        let bestCorr = -Infinity, bestS = searchS
-        let ib = st.ib, ob = st.ob, corBase = st.pos
-        for (let s = searchS; s <= searchE; s++) {
-          let corr = 0
-          for (let i = 0; i < overlap; i += step) corr += ib[s + i] * ob[corBase + i]
-          if (corr > bestCorr) { bestCorr = corr; bestS = s }
+        let targetStart = (prevReadAbs - inOffset) + synHop
+        let L = Math.min(corrLen, st.il - targetStart, st.il - searchE)
+        if (targetStart >= 0 && L > 0) {
+          let step = L > 768 ? 2 : 1
+          let bestCorr = -Infinity, bestS = searchS
+          let ib = st.ib
+          for (let s = searchS; s <= searchE; s++) {
+            let corr = 0
+            for (let i = 0; i < L; i += step) corr += ib[s + i] * ib[targetStart + i]
+            if (corr > bestCorr) { bestCorr = corr; bestS = s }
+          }
+          readPos = bestS
         }
-        readPos = bestS
       }
 
       if (readPos + frameSize > st.il) break
@@ -110,6 +124,7 @@ function wsolaStream(opts) {
         ob[base + i] += ib[readPos + i] * win[i]
         nb[base + i] += win[i]
       }
+      prevReadAbs = inOffset + readPos
       aPos += anaHop
       st.pos += synHop
     }
@@ -118,6 +133,7 @@ function wsolaStream(opts) {
       let trim = used - frameSize - delta
       st.compactIn(trim)
       aPos -= trim
+      inOffset += trim
     }
   }
 

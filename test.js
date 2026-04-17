@@ -1,5 +1,5 @@
 import test, { almost, ok, is } from 'tst'
-import { wsola, vocoder, paulstretch, psola, pitchShift, sms, lsd, chordBalance, chordRetention } from './index.js'
+import { wsola, vocoder, paulstretch, psola, pitchShift, sms, lsd, chordBalance, chordRetention, modulationDepth } from './index.js'
 
 // Compatibility aliases using merged API
 const ola = (d, o) => d instanceof Float32Array
@@ -547,10 +547,10 @@ let chordBalanceCases = [
   // [name, fn, opts, minBalance, minRetention]
   ['vocoder lock 0.5×', vocoder, { factor: 0.5, lock: true }, 0.9, 0.9],
   ['vocoder lock 2.0×', vocoder, { factor: 2.0, lock: true }, 0.9, 0.9],
-  ['wsola 0.5×', wsola, { factor: 0.5 }, 0.03, 0.1],
-  ['wsola 2.0×', wsola, { factor: 2.0 }, 0.1, 0.05],
-  ['psola 0.5×', psola, { factor: 0.5 }, 0.03, 0.1],
-  ['psola 2.0×', psola, { factor: 2.0 }, 0.1, 0.05],
+  ['wsola 0.5×', wsola, { factor: 0.5 }, 0.4, 0.5],
+  ['wsola 2.0×', wsola, { factor: 2.0 }, 0.15, 0.4],
+  ['psola 0.5×', psola, { factor: 0.5 }, 0.4, 0.5],
+  ['psola 2.0×', psola, { factor: 2.0 }, 0.15, 0.4],
 ]
 
 for (let [name, fn, opts, minBal, minRet] of chordBalanceCases) {
@@ -562,5 +562,28 @@ for (let [name, fn, opts, minBal, minRet] of chordBalanceCases) {
     let ret = chordRetention(out, ref, chordFreqs, fs)
     ok(bal >= minBal, `balance=${bal.toFixed(3)} (min ${minBal})`)
     ok(ret >= minRet, `retention=${ret.toFixed(3)} (min ${minRet})`)
+  })
+}
+
+// --- Chord modulation depth ("crumble") regression ---
+// Hop-rate amplitude modulation on polyphonic content — the defect canonical WSOLA
+// was created to avoid. Using the output buffer as the correlation target (instead
+// of the input's natural progression) lets compromise lags compound across grains
+// and produces audible beating that LSD misses entirely.
+let modulationCases = [
+  // [name, fn, opts, freqs, maxDepth]
+  ['vocoder chord 2.0×', vocoder, { factor: 2.0, lock: true }, chordFreqs, 0.05],
+  ['wsola chord 2.0×',   wsola,   { factor: 2.0 },             chordFreqs, 0.05],
+  ['wsola chord 1.5×',   wsola,   { factor: 1.5 },             chordFreqs, 0.05],
+  ['wsola chord 0.5×',   wsola,   { factor: 0.5 },             chordFreqs, 0.05],
+  ['wsola sine 2.0×',    wsola,   { factor: 2.0 },             [440],      0.02],
+]
+
+for (let [name, fn, opts, freqs, maxDepth] of modulationCases) {
+  test(`modulation depth — ${name}`, () => {
+    let src = freqs.length === 1 ? sineSig(freqs[0], 1.0) : chordSig(1.0)
+    let out = fn(src, opts)
+    let depth = modulationDepth(out, freqs, fs)
+    ok(depth < maxDepth, `depth=${depth.toFixed(3)} (max ${maxDepth})`)
   })
 }

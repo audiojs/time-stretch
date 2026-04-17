@@ -88,3 +88,10 @@ export declare function spectralSim(a: Float32Array, b: Float32Array, opts?: Qua
 export declare function goertzelEnergy(data: Float32Array, freq: number, sr: number): number
 export declare function chordBalance(data: Float32Array, freqs: number[], sr: number): number
 export declare function chordRetention(data: Float32Array, ref: Float32Array, freqs: number[], sr: number): number
+
+export interface ModulationDepthOpts {
+  envWindow?: number
+  envHop?: number
+  trim?: number
+}
+export declare function modulationDepth(data: Float32Array, freqs: number[], sr: number, opts?: ModulationDepthOpts): number
